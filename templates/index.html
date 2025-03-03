@@ -1,0 +1,531 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Sol Panel -->
+    <div class="col-md-3">
+        <!-- Sembol Seçimi -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Sembol Seçimi</h5>
+            </div>
+            <div class="card-body">
+                <select class="form-select mb-3" id="symbol">
+                    {% for symbol in symbols %}
+                    <option value="{{ symbol }}">{{ symbol }}</option>
+                    {% endfor %}
+                </select>
+                
+                <select class="form-select mb-3" id="interval">
+                    {% for value, label in intervals %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- Favori Semboller -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Favori Semboller</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for symbol in favorite_symbols %}
+                    <button class="list-group-item list-group-item-action" onclick="changeSymbol('{{ symbol }}')">
+                        {{ symbol }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Bot Kontrolü -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Bot Kontrolü</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="bot-strategy" class="form-label">Strateji</label>
+                    <select class="form-select mb-3" id="bot-strategy">
+                        {% for strategy in strategies %}
+                        <option value="{{ strategy }}">{{ strategy }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <button id="start-bot-btn" class="btn btn-success w-100" onclick="toggleBot()">
+                    <i class="bi bi-play-fill"></i> Botu Başlat
+                </button>
+                <div class="mt-2 text-center">
+                    <span id="bot-status" class="badge bg-secondary">Durduruldu</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hesap Bilgileri -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div id="account-info">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Yükleniyor...</span>
+                        </div>
+                        <span class="ms-2">Hesap bilgileri yükleniyor...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strateji Sinyalleri -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Strateji Sinyalleri</h5>
+            </div>
+            <div class="card-body">
+                <div id="signals">
+                    <!-- Sinyaller buraya gelecek -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="col-md-9">
+        <!-- Grafik -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Fiyat Grafiği</h5>
+            </div>
+            <div class="card-body">
+                <div id="tradingview-widget-container" style="height: 400px;"></div>
+            </div>
+        </div>
+
+        <!-- İşlem Geçmişi -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">İşlem Geçmişi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Sembol</th>
+                                <th>Tip</th>
+                                <th>Fiyat</th>
+                                <th>Miktar</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades">
+                            <!-- İşlemler buraya gelecek -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TradingView Widget -->
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script>
+// Sayfa yüklendiğinde çalışacak
+document.addEventListener('DOMContentLoaded', function() {
+    // Varsayılan değerler
+    if (!document.getElementById('symbol').value) {
+        document.getElementById('symbol').value = "BTCUSDT";
+    }
+    
+    if (!document.getElementById('interval').value) {
+        document.getElementById('interval').value = "1h";
+    }
+    
+    // İlk grafik oluşturma
+    setTimeout(function() {
+        createTradingViewWidget();
+    }, 1000);
+    
+    // İlk veri güncellemesi
+    setTimeout(function() {
+        updateData();
+    }, 2000);
+    
+    // Her 10 saniyede bir güncelle (5 saniye yerine)
+    setInterval(updateData, 10000);
+    
+    // Hesap bilgilerini güncelle
+    updateAccountInfo();
+    setInterval(updateAccountInfo, 30000);
+    
+    // Sembol veya interval değiştiğinde güncelle
+    document.getElementById('symbol').addEventListener('change', function() {
+        setTimeout(function() {
+            createTradingViewWidget();
+        }, 500);
+        setTimeout(function() {
+            updateData();
+        }, 1000);
+    });
+    
+    document.getElementById('interval').addEventListener('change', function() {
+        setTimeout(function() {
+            createTradingViewWidget();
+        }, 500);
+        setTimeout(function() {
+            updateData();
+        }, 1000);
+    });
+});
+
+// TradingView widget oluşturma fonksiyonu
+function createTradingViewWidget() {
+    try {
+        console.log("TradingView widget oluşturuluyor...");
+        
+        // Mevcut widget'ı temizle
+        const container = document.getElementById('tradingview-widget-container');
+        container.innerHTML = '';
+        
+        // Sembol ve interval değerlerini al
+        let symbol = document.getElementById('symbol').value;
+        const interval = document.getElementById('interval').value;
+        
+        // Geçersiz sembol kontrolü
+        let cleanSymbol = symbol;
+        if (symbol.includes("1000000MOGU") || !symbol || symbol === "undefined" || symbol === "null") {
+            cleanSymbol = "BTCUSDT";
+            document.getElementById('symbol').value = "BTCUSDT";
+            console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+        }
+        
+        console.log("Widget yükleniyor:", cleanSymbol, interval);
+        
+        // Yükleniyor göstergesi
+        container.innerHTML = `
+            <div class="d-flex justify-content-center align-items-center" style="height: 400px;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Yükleniyor...</span>
+                </div>
+                <span class="ms-2">Grafik yükleniyor...</span>
+            </div>
+        `;
+        
+        // TradingView iframe kullanarak daha basit bir yaklaşım
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.height = '400px';
+        iframe.style.border = 'none';
+        iframe.src = `https://www.tradingview.com/chart/?symbol=BINANCE:${cleanSymbol}&interval=${interval}&theme=dark`;
+        
+        // Container'ı temizle ve iframe'i ekle
+        container.innerHTML = '';
+        container.appendChild(iframe);
+        
+        console.log("TradingView widget oluşturuldu");
+    } catch (error) {
+        console.error("TradingView widget hatası:", error);
+        
+        // Hata mesajını göster
+        const container = document.getElementById('tradingview-widget-container');
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Grafik yüklenemedi!</strong><br>
+                Lütfen sayfayı yenileyin veya farklı bir sembol seçin.<br>
+                <small>Hata: ${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Sembol değiştirme fonksiyonu
+function changeSymbol(symbol) {
+    if (!symbol || symbol === "undefined" || symbol === "null" || symbol.includes("1000000MOGU")) {
+        symbol = "BTCUSDT";
+        console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+    }
+    
+    document.getElementById('symbol').value = symbol;
+    createTradingViewWidget();
+    updateData();
+}
+
+// Bot başlatma/durdurma fonksiyonu
+let botRunning = false;
+function toggleBot() {
+    const symbol = document.getElementById('symbol').value;
+    const strategy = document.getElementById('bot-strategy').value;
+    const button = document.getElementById('start-bot-btn');
+    const statusBadge = document.getElementById('bot-status');
+    
+    if (!botRunning) {
+        // Botu başlat
+        fetch('/api/bot/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                strategy: strategy
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = true;
+                button.classList.remove('btn-success');
+                button.classList.add('btn-danger');
+                button.innerHTML = '<i class="bi bi-stop-fill"></i> Botu Durdur';
+                statusBadge.classList.remove('bg-secondary');
+                statusBadge.classList.add('bg-success');
+                statusBadge.textContent = 'Çalışıyor';
+            } else {
+                alert('Bot başlatılamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot başlatılırken bir hata oluştu.');
+        });
+    } else {
+        // Botu durdur
+        fetch('/api/bot/stop', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = false;
+                button.classList.remove('btn-danger');
+                button.classList.add('btn-success');
+                button.innerHTML = '<i class="bi bi-play-fill"></i> Botu Başlat';
+                statusBadge.classList.remove('bg-success');
+                statusBadge.classList.add('bg-secondary');
+                statusBadge.textContent = 'Durdu';
+            } else {
+                alert('Bot durdurulamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot durdurulurken bir hata oluştu.');
+        });
+    }
+}
+
+// Verileri güncelleme fonksiyonu
+async function updateData() {
+    try {
+        // Sembol ve interval değerlerini al
+        const symbol = document.getElementById('symbol').value;
+        const interval = document.getElementById('interval').value;
+        
+        if (!symbol || !interval) {
+            console.error('Sembol veya interval değeri bulunamadı');
+            return;
+        }
+        
+        console.log('Veriler güncelleniyor:', symbol, interval);
+        
+        // Strateji sinyallerini al
+        try {
+            const signalsResponse = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    symbol: symbol,
+                    interval: interval
+                })
+            });
+            
+            if (!signalsResponse.ok) {
+                console.error('Sinyaller alınamadı:', signalsResponse.status, signalsResponse.statusText);
+                
+                // Hata mesajını göster
+                const signalsDiv = document.getElementById('signals');
+                signalsDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        <strong>Uyarı:</strong> Strateji sinyalleri alınamadı. 
+                        <br>Hata kodu: ${signalsResponse.status}
+                        <br><small>Lütfen daha sonra tekrar deneyin veya API ayarlarınızı kontrol edin.</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            const signals = await signalsResponse.json();
+            
+            // Sinyalleri göster
+            const signalsDiv = document.getElementById('signals');
+            signalsDiv.innerHTML = '';
+            
+            if (signals.error) {
+                signalsDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Hata:</strong> ${signals.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            if (!Array.isArray(signals) || signals.length === 0) {
+                signalsDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        Sinyal bulunamadı.
+                    </div>
+                `;
+                return;
+            }
+            
+            signals.forEach(signal => {
+                const div = document.createElement('div');
+                div.className = 'alert ' + (signal.signal > 0 ? 'alert-success' : signal.signal < 0 ? 'alert-danger' : 'alert-warning');
+                div.innerHTML = `
+                    <strong>${signal.strategy}</strong><br>
+                    Sinyal: ${signal.signal > 0 ? 'AL' : signal.signal < 0 ? 'SAT' : 'BEKLE'}<br>
+                    Güven: ${(signal.confidence * 100).toFixed(2)}%
+                `;
+                signalsDiv.appendChild(div);
+            });
+        } catch (signalError) {
+            console.error('Sinyal alınırken hata:', signalError);
+            
+            // Hata mesajını göster
+            const signalsDiv = document.getElementById('signals');
+            signalsDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Hata:</strong> Strateji sinyalleri alınırken bir hata oluştu.
+                    <br><small>${signalError.message}</small>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        console.error('Hata:', error);
+    }
+}
+
+// Hesap bilgilerini al ve göster
+async function updateAccountInfo() {
+    try {
+        $.ajax({
+            url: '/api/account',
+            type: 'GET',
+            success: function(data) {
+                if (data.error) {
+                    $('#account-error').text(data.error).show();
+                    $('#account-info').hide();
+                    return;
+                }
+                
+                // Hesap bilgilerini göster
+                $('#account-info').show();
+                $('#account-error').hide();
+                
+                // Bakiyeleri güncelle
+                var balances = data.balances || [];
+                var balanceHtml = '';
+                
+                balances.forEach(function(balance) {
+                    if (parseFloat(balance.free) > 0 || parseFloat(balance.locked) > 0) {
+                        balanceHtml += '<tr>' +
+                            '<td>' + balance.asset + '</td>' +
+                            '<td>' + parseFloat(balance.free).toFixed(8) + '</td>' +
+                            '<td>' + parseFloat(balance.locked).toFixed(8) + '</td>' +
+                            '</tr>';
+                    }
+                });
+                
+                $('#balance-table tbody').html(balanceHtml);
+                
+                // Açık emirleri güncelle
+                var openOrders = data.open_orders || [];
+                var ordersHtml = '';
+                
+                openOrders.forEach(function(order) {
+                    ordersHtml += '<tr>' +
+                        '<td>' + order.symbol + '</td>' +
+                        '<td>' + order.side + '</td>' +
+                        '<td>' + parseFloat(order.price).toFixed(8) + '</td>' +
+                        '<td>' + parseFloat(order.origQty).toFixed(8) + '</td>' +
+                        '<td>' + order.status + '</td>' +
+                        '</tr>';
+                });
+                
+                $('#orders-table tbody').html(ordersHtml);
+            },
+            error: function(xhr, status, error) {
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    $('#account-error').text(response.error || 'Hesap bilgileri alınamadı').show();
+                } 
+                catch (e) {
+                    $('#account-error').text('Hesap bilgileri alınamadı: ' + error).show();
+                }
+                $('#account-info').hide();
+            }
+        });
+    } catch (error) {
+        console.error('Hesap bilgileri hatası:', error);
+        document.getElementById('account-info').innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Hata:</strong> Hesap bilgileri alınamadı.
+                <br><small>${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Sembol değiştirme fonksiyonu
+function changeSymbol(symbol) {
+    document.getElementById("symbol").value = symbol;
+    // Grafiği güncelle
+    if (window.tradingViewWidget) {
+        // Widget'ı yeniden oluştur
+        const container = document.getElementById("tradingview-widget-container");
+        container.innerHTML = "";
+        
+        // Sembol formatını kontrol et ve düzelt
+        let formattedSymbol = symbol;
+        if (!formattedSymbol.includes(':')) {
+            formattedSymbol = "BINANCE:" + formattedSymbol;
+        }
+        
+        // Geçersiz sembol kontrolü
+        if (formattedSymbol === "BINANCE:undefined" || formattedSymbol === "BINANCE:null" || formattedSymbol.includes("1000000MOGU")) {
+            formattedSymbol = "BINANCE:BTCUSDT";
+            console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+            // Sembol değerini de güncelle
+            document.getElementById('symbol').value = "BTCUSDT";
+        }
+        
+        console.log("Grafik yükleniyor:", formattedSymbol);
+        
+        window.tradingViewWidget = new TradingView.widget({
+            "width": "100%",
+            "height": "400",
+            "symbol": formattedSymbol,
+            "interval": document.getElementById('interval').value,
+            "timezone": "Europe/Istanbul",
+            "theme": "dark",
+            "style": "1",
+            "locale": "tr",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview-widget-container",
+            "autosize": true
+        });
+    }
+    // Verileri güncelle
+    updateData();
+}
+</script>
+{% endblock %}

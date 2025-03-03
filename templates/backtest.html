@@ -1,0 +1,489 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Sol Panel -->
+    <div class="col-md-3">
+        <!-- Backtest Formu -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Backtest Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form id="backtest-form">
+                    <div class="mb-3">
+                        <label for="symbol" class="form-label">Sembol</label>
+                        <select class="form-select" id="symbol" name="symbol" required>
+                            {% for symbol in symbols %}
+                            <option value="{{ symbol }}">{{ symbol }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="interval" class="form-label">Zaman Aralığı</label>
+                        <select class="form-select" id="interval" name="interval" required>
+                            <option value="1m">1 dakika</option>
+                            <option value="3m">3 dakika</option>
+                            <option value="5m">5 dakika</option>
+                            <option value="15m">15 dakika</option>
+                            <option value="30m" selected>30 dakika</option>
+                            <option value="1h">1 saat</option>
+                            <option value="2h">2 saat</option>
+                            <option value="4h">4 saat</option>
+                            <option value="6h">6 saat</option>
+                            <option value="8h">8 saat</option>
+                            <option value="12h">12 saat</option>
+                            <option value="1d">1 gün</option>
+                            <option value="3d">3 gün</option>
+                            <option value="1w">1 hafta</option>
+                            <option value="1M">1 ay</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="strategy" class="form-label">Strateji</label>
+                        <select class="form-select" id="strategy" name="strategy" required>
+                            {% for strategy in strategies %}
+                            <option value="{{ strategy }}">{{ strategy }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="start_date" class="form-label">Başlangıç Tarihi</label>
+                        <input type="date" class="form-control" id="start_date" name="start_date" value="2025-01-01" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="end_date" class="form-label">Bitiş Tarihi</label>
+                        <input type="date" class="form-control" id="end_date" name="end_date" value="2025-03-01" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="initial_balance" class="form-label">Başlangıç Bakiyesi (USDT)</label>
+                        <input type="number" class="form-control" id="initial_balance" name="initial_balance" value="1000" min="100" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="take_profit_pct" class="form-label">Kar Alma Yüzdesi (%)</label>
+                        <input type="number" class="form-control" id="take_profit_pct" name="take_profit_pct" value="10.0" min="0" step="0.1">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="stop_loss_pct" class="form-label">Zarar Durdurma Yüzdesi (%)</label>
+                        <input type="number" class="form-control" id="stop_loss_pct" name="stop_loss_pct" value="5.0" min="0" step="0.1">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="trailing_stop_pct" class="form-label">Trailing Stop Yüzdesi (%) - 0 ise devre dışı</label>
+                        <input type="number" class="form-control" id="trailing_stop_pct" name="trailing_stop_pct" value="0.0" min="0" step="0.1">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="trailing_profit_pct" class="form-label">Trailing Profit Yüzdesi (%) - 0 ise devre dışı</label>
+                        <input type="number" class="form-control" id="trailing_profit_pct" name="trailing_profit_pct" value="0.0" min="0" step="0.1">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-play"></i> Backtest Başlat
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="col-md-9">
+        <!-- Sonuçlar -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Backtest Sonuçları</h5>
+            </div>
+            <div class="card-body">
+                <div id="results-container" style="display: none;">
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Özet Sonuçlar</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">Toplam İşlem</label>
+                                        <div class="h4" id="total_trades">0</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">Toplam Kar/Zarar</label>
+                                        <div class="h4" id="total_pnl">0.00 USDT</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">Kar/Zarar Yüzdesi</label>
+                                        <div class="h4" id="total_pnl_percent">0.00%</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">Kazanma Oranı</label>
+                                        <div class="h4" id="win_rate">0.00%</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">Maksimum Düşüş</label>
+                                        <div class="h4" id="max_drawdown">0.00%</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grafik -->
+                    <div id="chart" style="height: 400px;"></div>
+
+                    <!-- İşlem Geçmişi -->
+                    <div class="table-responsive mt-4">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>İşlem</th>
+                                    <th>Fiyat</th>
+                                    <th>Miktar</th>
+                                    <th>Kar/Zarar</th>
+                                    <th>Kar/Zarar %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="loading-spinner" style="display: none;">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Yükleniyor...</span>
+                        </div>
+                        <p class="mt-2">Backtest çalıştırılıyor...</p>
+                    </div>
+                </div>
+
+                <div id="error-container" style="display: none;" class="alert alert-danger">
+                    <h4 id="error-message"></h4>
+                    <div id="error-details"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block head %}
+<title>Backtest - Binance Trading Bot</title>
+<style>
+    .loading {
+        display: none;
+        text-align: center;
+        margin: 20px 0;
+    }
+    .error {
+        display: none;
+        color: red;
+        margin: 10px 0;
+        padding: 10px;
+        border: 1px solid red;
+        border-radius: 5px;
+        background-color: #ffeeee;
+    }
+    .results {
+        display: none;
+    }
+    .chart-container {
+        height: 400px;
+        margin-bottom: 20px;
+    }
+    .stats-container {
+        display: flex;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+    .stat-box {
+        flex: 1;
+        min-width: 200px;
+        margin: 10px;
+        padding: 15px;
+        border-radius: 5px;
+        background-color: #f8f9fa;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-box h4 {
+        margin-top: 0;
+        color: #6c757d;
+    }
+    .stat-box .value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #343a40;
+    }
+    .trades-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .trades-table th, .trades-table td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .trades-table th {
+        background-color: #f8f9fa;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Strateji listesini yükle
+    $.ajax({
+        url: '/api/strategies',
+        type: 'GET',
+        success: function(data) {
+            var select = $('#strategy');
+            select.empty();
+            $.each(data.strategies, function(i, strategy) {
+                select.append($('<option></option>').val(strategy).text(strategy));
+            });
+        },
+        error: function(error) {
+            console.error('Stratejiler yüklenirken hata:', error);
+            showError('Stratejiler yüklenirken hata oluştu: ' + error.statusText);
+        }
+    });
+
+    // Tarih seçicileri için datepicker - jQuery UI datepicker'ı kaldırıyoruz
+    // Bunun yerine normal tarih girişi kullanacağız
+    
+    // Varsayılan tarih değerlerini ayarla
+    var today = new Date();
+    var oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(today.getMonth() - 1);
+    
+    // Tarihleri yyyy-mm-dd formatında ayarla
+    $('#start_date').val("2025-01-01");
+    $('#end_date').val("2025-03-01");
+
+    // Form gönderildiğinde
+    function runBacktest() {
+        $('#backtest-results').html('<div class="text-center my-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-2">Backtest çalıştırılıyor...</p></div>');
+        
+        var formData = {
+            symbol: $('#symbol').val(),
+            interval: $('#interval').val(),
+            strategy: $('#strategy').val(),  // strategy_name olarak değiştirildi
+            start_date: $('#start_date').val(),
+            end_date: $('#end_date').val(),
+            initial_balance: $('#initial_balance').val(),
+            take_profit_pct: $('#take_profit_pct').val(),
+            stop_loss_pct: $('#stop_loss_pct').val(),
+            trailing_stop_pct: $('#trailing_stop_pct').val(),
+            trailing_profit_pct: $('#trailing_profit_pct').val()
+        };
+        
+        console.log('Backtest isteği gönderiliyor:', formData);
+        
+        // API isteği gönder
+        $.ajax({
+            url: '/api/backtest/run',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                $('#loading-spinner').hide();
+                
+                if (response.error) {
+                    var errorMessage = response.error;
+                    var errorDetails = response.details || '';
+                    showError(errorMessage, errorDetails);
+                    return;
+                }
+                
+                // Sonuçları göster
+                displayResults(response);
+            },
+            error: function(xhr, status, error) {
+                $('#loading-spinner').hide();
+                
+                // Hata mesajını göster
+                try {
+                    var errorResponse = JSON.parse(xhr.responseText);
+                    var errorMessage = errorResponse.error || 'Backtest çalıştırılırken bir hata oluştu.';
+                    var errorDetails = errorResponse.details || '';
+                    showError(errorMessage, errorDetails);
+                } catch (e) {
+                    var errorMessage = 'Backtest çalıştırılırken bir hata oluştu: ' + error;
+                    var errorDetails = '';
+                    showError(errorMessage, errorDetails);
+                }
+            }
+        });
+    }
+    
+    // Tarih formatı için yardımcı fonksiyon
+    function formatDate(date) {
+        var year = date.getFullYear();
+        var month = (date.getMonth() + 1).toString().padStart(2, '0');
+        var day = date.getDate().toString().padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+    
+    // Hata mesajını göster
+    function showError(message, details) {
+        $('#results-container').hide();
+        $('#error-container').show();
+        
+        // Ana hata mesajı
+        $('#error-message').text(message);
+        
+        // Detaylı hata mesajı varsa göster
+        if (details) {
+            $('#error-details').show().html(details);
+        } else {
+            $('#error-details').hide();
+        }
+        
+        $('#loading-spinner').hide();
+    }
+    
+    // Sonuçları göster
+    function displayResults(response) {
+        console.log('Backtest sonuçları:', response);
+        
+        // Sonuçları göster
+        $('#results-container').show();
+        
+        // Hata kontrolü
+        if (!response || typeof response !== 'object') {
+            var errorMessage = 'Geçersiz veya boş yanıt alındı';
+            var errorDetails = '';
+            showError(errorMessage, errorDetails);
+            return;
+        }
+        
+        // Özet sonuçları göster
+        $('#total_pnl').text((response.profit_loss || 0).toFixed(2) + ' USDT');
+        $('#win_rate').text((response.win_rate || 0).toFixed(2) + '%');
+        $('#total_trades').text((response.win_count || 0) + (response.loss_count || 0));
+        $('#max_drawdown').text((response.max_drawdown || 0).toFixed(2) + '%');
+        
+        // Yüzdelik kar/zarar gösterimi
+        const pnlPercent = response.profit_loss_percent || 0;
+        const pnlPercentText = pnlPercent.toFixed(2) + '%';
+        $('#total_pnl_percent').text(pnlPercentText);
+        
+        // Kar/zarar durumuna göre renklendirme
+        if (pnlPercent > 0) {
+            $('#total_pnl_percent').addClass('text-success').removeClass('text-danger');
+        } else if (pnlPercent < 0) {
+            $('#total_pnl_percent').addClass('text-danger').removeClass('text-success');
+        } else {
+            $('#total_pnl_percent').removeClass('text-success text-danger');
+        }
+        
+        // Sinyal dağılımı bilgisini göster
+        let signalDistribution = '';
+        if (response.signal_stats) {
+            signalDistribution = '<div class="mb-2"><strong>Sinyal Dağılımı:</strong></div>';
+            for (const [signal, count] of Object.entries(response.signal_stats)) {
+                signalDistribution += `<div class="mb-1">- ${signal}: ${count}</div>`;
+            }
+        } else {
+            signalDistribution = '<div class="mb-2"><strong>Sinyal Dağılımı:</strong> Bilgi yok</div>';
+        }
+        
+        // Grafik oluştur
+        if (response.equity_curve && response.equity_curve.length > 0) {
+            const trace = {
+                x: response.equity_curve.map(p => p[0]),
+                y: response.equity_curve.map(p => p[1]),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Portföy Değeri'
+            };
+            
+            const layout = {
+                title: 'Portföy Değeri',
+                xaxis: { title: 'Tarih' },
+                yaxis: { title: 'USDT' }
+            };
+            
+            Plotly.newPlot('chart', [trace], layout);
+        } else {
+            $('#chart').html('<div class="alert alert-warning">Grafik verisi bulunamadı veya sinyal üretilemedi</div>');
+        }
+        
+        // İşlem geçmişini göster
+        if (response.trades && response.trades.length > 0) {
+            const tradesHtml = response.trades.map(trade => {
+                // PnL yüzdesine göre renk belirle
+                const pnlClass = trade.pnl > 0 ? 'text-success' : (trade.pnl < 0 ? 'text-danger' : '');
+                
+                return `
+                <tr>
+                    <td>${trade.entry_time}</td>
+                    <td>${trade.entry_price ? trade.entry_price.toFixed(2) : 'N/A'}</td>
+                    <td>${trade.exit_time || 'N/A'}</td>
+                    <td>${trade.exit_price ? trade.exit_price.toFixed(2) : 'N/A'}</td>
+                    <td>${trade.side}</td>
+                    <td class="${pnlClass}">${trade.pnl ? trade.pnl.toFixed(2) : '0.00'} USDT</td>
+                    <td class="${pnlClass}">${trade.pnl_percent ? trade.pnl_percent.toFixed(2) : '0.00'}%</td>
+                </tr>
+                `;
+            }).join('');
+            
+            $('#trades-body').html(tradesHtml);
+            $('#trades-container').show();
+        } else {
+            $('#trades-body').html('<tr><td colspan="7" class="text-center">İşlem bulunamadı</td></tr>');
+            $('#trades-container').show();
+        }
+        
+        // Strateji parametrelerini göster
+        $('#strategy-params').html(`
+            <div class="mb-2"><strong>Strateji:</strong> ${response.strategy || 'Bilinmiyor'}</div>
+            <div class="mb-2"><strong>Sembol:</strong> ${response.symbol || 'Bilinmiyor'}</div>
+            <div class="mb-2"><strong>Zaman Aralığı:</strong> ${response.interval || 'Bilinmiyor'}</div>
+            <div class="mb-2"><strong>Başlangıç Bakiyesi:</strong> ${response.initial_balance || 0} USDT</div>
+            <div class="mb-2"><strong>Kar Alma Yüzdesi:</strong> ${response.take_profit_pct || 0}%</div>
+            <div class="mb-2"><strong>Zarar Durdurma Yüzdesi:</strong> ${response.stop_loss_pct || 0}%</div>
+            <div class="mb-2"><strong>Trailing Stop Yüzdesi:</strong> ${response.trailing_stop_pct || 'Devre dışı'}</div>
+            <div class="mb-2"><strong>Trailing Profit Yüzdesi:</strong> ${response.trailing_profit_pct || 'Devre dışı'}</div>
+            ${signalDistribution}
+        `);
+        
+        // Tarih aralığı bilgisini göster
+        if (response.date_range) {
+            $('#date-range').html(`
+                <div class="mb-2"><strong>Başlangıç Tarihi:</strong> ${response.date_range.start_date || 'Bilinmiyor'}</div>
+                <div class="mb-2"><strong>Bitiş Tarihi:</strong> ${response.date_range.end_date || 'Bilinmiyor'}</div>
+                <div class="mb-2"><strong>Veri Noktası Sayısı:</strong> ${response.date_range.data_points || 0}</div>
+            `);
+        }
+    }
+    
+    $('#backtest-form').submit(function(e) {
+        e.preventDefault();
+        runBacktest();
+    });
+});
+</script>
+{% endblock %}

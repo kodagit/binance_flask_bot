@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Sol Panel -->
+    <div class="col-md-3">
+        <!-- Sembol Seçimi -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Sembol Seçimi</h5>
+            </div>
+            <div class="card-body">
+                <select class="form-select mb-3" id="symbol">
+                    {% for symbol in symbols %}
+                    <option value="{{ symbol }}">{{ symbol }}</option>
+                    {% endfor %}
+                </select>
+                
+                <select class="form-select mb-3" id="interval">
+                    {% for value, label in intervals %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- Favori Semboller -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Favori Semboller</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for symbol in favorite_symbols %}
+                    <button class="list-group-item list-group-item-action" onclick="changeSymbol('{{ symbol }}')">
+                        {{ symbol }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Bot Kontrolü -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Bot Kontrolü</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="bot-strategy" class="form-label">Strateji</label>
+                    <select class="form-select mb-3" id="bot-strategy">
+                        {% for strategy in strategies %}
+                        <option value="{{ strategy }}">{{ strategy }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button id="start-bot-btn" class="btn btn-success" onclick="toggleBot()">
+                        <i class="bi bi-play-fill"></i> Botu Başlat
+                    </button>
+                </div>
+                
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>Bot Durumu:</span>
+                        <span id="bot-status" class="badge bg-secondary">Durdu</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strateji Sinyalleri -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Strateji Sinyalleri</h5>
+            </div>
+            <div class="card-body">
+                <div id="signals">
+                    <!-- Sinyaller buraya gelecek -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="col-md-9">
+        <!-- Grafik -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Fiyat Grafiği</h5>
+            </div>
+            <div class="card-body">
+                <div id="chart" style="height: 400px;"></div>
+            </div>
+        </div>
+
+        <!-- İşlem Geçmişi -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">İşlem Geçmişi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Sembol</th>
+                                <th>Tip</th>
+                                <th>Fiyat</th>
+                                <th>Miktar</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades">
+                            <!-- İşlemler buraya gelecek -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TradingView Widget -->
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script>
+// Grafik oluştur
+new TradingView.widget({
+    "width": "100%",
+    "height": "400",
+    "symbol": "BINANCE:" + document.getElementById('symbol').value,
+    "interval": document.getElementById('interval').value,
+    "timezone": "Europe/Istanbul",
+    "theme": "dark",
+    "style": "1",
+    "locale": "tr",
+    "toolbar_bg": "#f1f3f6",
+    "enable_publishing": false,
+    "hide_side_toolbar": false,
+    "allow_symbol_change": true,
+    "container_id": "chart"
+});
+
+// Sembol değiştirme fonksiyonu
+function changeSymbol(symbol) {
+    document.getElementById('symbol').value = symbol;
+    // Grafiği güncelle
+    widget.setSymbol("BINANCE:" + symbol);
+}
+
+// Bot başlatma/durdurma fonksiyonu
+let botRunning = false;
+function toggleBot() {
+    const symbol = document.getElementById('symbol').value;
+    const strategy = document.getElementById('bot-strategy').value;
+    const button = document.getElementById('start-bot-btn');
+    const statusBadge = document.getElementById('bot-status');
+    
+    if (!botRunning) {
+        // Botu başlat
+        fetch('/api/bot/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                strategy: strategy
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = true;
+                button.classList.remove('btn-success');
+                button.classList.add('btn-danger');
+                button.innerHTML = '<i class="bi bi-stop-fill"></i> Botu Durdur';
+                statusBadge.classList.remove('bg-secondary');
+                statusBadge.classList.add('bg-success');
+                statusBadge.textContent = 'Çalışıyor';
+            } else {
+                alert('Bot başlatılamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot başlatılırken bir hata oluştu.');
+        });
+    } else {
+        // Botu durdur
+        fetch('/api/bot/stop', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = false;
+                button.classList.remove('btn-danger');
+                button.classList.add('btn-success');
+                button.innerHTML = '<i class="bi bi-play-fill"></i> Botu Başlat';
+                statusBadge.classList.remove('bg-success');
+                statusBadge.classList.add('bg-secondary');
+                statusBadge.textContent = 'Durdu';
+            } else {
+                alert('Bot durdurulamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot durdurulurken bir hata oluştu.');
+        });
+    }
+}
+
+// Verileri güncelle
+async function updateData() {
+    try {
+        // Mum verilerini al
+        const response = await fetch('/api/klines?' + new URLSearchParams({
+            symbol: document.getElementById('symbol').value,
+            interval: document.getElementById('interval').value
+        }));
+        
+        if (!response.ok) throw new Error('Veri alınamadı');
+        
+        const data = await response.json();
+        
+        // Strateji sinyallerini al
+        const signalsResponse = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: document.getElementById('symbol').value,
+                interval: document.getElementById('interval').value
+            })
+        });
+        
+        if (!signalsResponse.ok) throw new Error('Sinyaller alınamadı');
+        
+        const signals = await signalsResponse.json();
+        
+        // Sinyalleri göster
+        const signalsDiv = document.getElementById('signals');
+        signalsDiv.innerHTML = '';
+        
+        signals.forEach(signal => {
+            const div = document.createElement('div');
+            div.className = 'alert ' + (signal.signal > 0 ? 'alert-success' : signal.signal < 0 ? 'alert-danger' : 'alert-warning');
+            div.innerHTML = `
+                <strong>${signal.strategy}</strong><br>
+                Sinyal: ${signal.signal > 0 ? 'AL' : signal.signal < 0 ? 'SAT' : 'BEKLE'}<br>
+                Güven: ${(signal.confidence * 100).toFixed(2)}%
+            `;
+            signalsDiv.appendChild(div);
+        });
+        
+    } catch (error) {
+        console.error('Hata:', error);
+    }
+}
+
+// Her 5 saniyede bir güncelle
+setInterval(updateData, 5000);
+
+// Sayfa yüklendiğinde ilk verileri al
+document.addEventListener('DOMContentLoaded', updateData);
+
+// Sembol veya interval değiştiğinde güncelle
+document.getElementById('symbol').addEventListener('change', updateData);
+document.getElementById('interval').addEventListener('change', updateData);
+</script>
+{% endblock %}

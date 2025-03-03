@@ -1,0 +1,90 @@
+// Sembol değiştirme fonksiyonu
+function changeSymbol(symbol) {
+    try {
+        document.getElementById('symbol').value = symbol;
+        
+        // Grafiği güncelle
+        if (window.tradingViewWidget) {
+            try {
+                // Widget'ı yeniden oluştur
+                const container = document.getElementById('chart');
+                container.innerHTML = '';
+                
+                // Sembol formatını kontrol et ve düzelt
+                let formattedSymbol = symbol;
+                if (!formattedSymbol.includes(':')) {
+                    formattedSymbol = "BINANCE:" + formattedSymbol;
+                }
+                
+                // Geçersiz sembol kontrolü
+                if (formattedSymbol === "BINANCE:undefined" || formattedSymbol === "BINANCE:null") {
+                    formattedSymbol = "BINANCE:BTCUSDT";
+                    console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+                }
+                
+                console.log("Grafik yükleniyor:", formattedSymbol);
+                
+                window.tradingViewWidget = new TradingView.widget({
+                    "width": "100%",
+                    "height": "400",
+                    "symbol": formattedSymbol,
+                    "interval": document.getElementById('interval').value || "1h",
+                    "timezone": "Europe/Istanbul",
+                    "theme": "dark",
+                    "style": "1",
+                    "locale": "tr",
+                    "toolbar_bg": "#f1f3f6",
+                    "enable_publishing": false,
+                    "hide_side_toolbar": false,
+                    "allow_symbol_change": true,
+                    "container_id": "chart",
+                    "autosize": true,
+                    "studies": ["MACD@tv-basicstudies", "RSI@tv-basicstudies"],
+                    "save_image": false,
+                    "hide_top_toolbar": false,
+                    "withdateranges": true,
+                    "show_popup_button": true,
+                    "popup_width": "1000",
+                    "popup_height": "650"
+                });
+            } catch (widgetError) {
+                console.error("Grafik widget'ı oluşturulurken hata:", widgetError);
+                document.getElementById('chart').innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Grafik yüklenemedi!</strong><br>
+                        Lütfen sayfayı yenileyin veya farklı bir sembol seçin.<br>
+                        <small>Hata: ${widgetError.message}</small>
+                    </div>
+                `;
+            }
+        }
+        
+        // Verileri güncelle
+        updateData();
+        
+        // Botu durdur
+        fetch('/api/bot/stop', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = false;
+                document.getElementById('start-bot-btn').classList.remove('btn-danger');
+                document.getElementById('start-bot-btn').classList.add('btn-success');
+                document.getElementById('start-bot-btn').innerHTML = '<i class="bi bi-play-fill"></i> Botu Başlat';
+                document.getElementById('bot-status').classList.remove('bg-success');
+                document.getElementById('bot-status').classList.add('bg-secondary');
+                document.getElementById('bot-status').textContent = 'Durdu';
+            } else {
+                console.warn('Bot durdurulamadı:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Bot durdurulurken hata:', error);
+        });
+    } catch (error) {
+        console.error("Sembol değiştirme hatası:", error);
+        alert("Sembol değiştirme sırasında bir hata oluştu: " + error.message);
+    }
+}

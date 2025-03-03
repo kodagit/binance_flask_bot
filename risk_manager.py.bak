@@ -1,0 +1,295 @@
+import logging
+import pandas as pd
+from typing import Dict, List, Tuple, Optional
+import json
+import os
+
+class RiskManager:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.settings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'risk_settings.json')
+        
+        # Varsayılan risk ayarları
+        self.default_settings = {
+            'max_position_size_percent': 5.0,  # Toplam bakiyenin yüzdesi olarak maksimum pozisyon büyüklüğü
+            'max_open_positions': 3,  # Aynı anda açık olabilecek maksimum pozisyon sayısı
+            'max_daily_loss_percent': 5.0,  # Günlük maksimum zarar yüzdesi
+            'trailing_stop_percent': 2.0,  # Takip eden stop yüzdesi
+            'take_profit_percent': 5.0,  # Kar alma yüzdesi
+            'stop_loss_percent': 3.0,  # Zarar durdurma yüzdesi
+            'enable_trailing_stop': True,  # Takip eden stop kullanımı
+            'enable_stop_loss': True,  # Zarar durdurma kullanımı
+            'enable_take_profit': True,  # Kar alma kullanımı
+            'max_risk_per_trade_percent': 1.0,  # İşlem başına maksimum risk yüzdesi
+            'min_risk_reward_ratio': 2.0,  # Minimum risk/ödül oranı
+            'enable_risk_management': True  # Risk yönetimi aktif/pasif
+        }
+        
+        # Ayarları yükle
+        self.settings = self.load_settings()
+        
+    def load_settings(self) -> Dict:
+        """Risk ayarlarını yükle"""
+        try:
+            # Data dizini yoksa oluştur
+            data_dir = os.path.dirname(self.settings_file)
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+                self.logger.info(f"Data dizini oluşturuldu: {data_dir}")
+                
+            # Dosya yoksa varsayılan ayarları kaydet
+            if not os.path.exists(self.settings_file):
+                self.logger.info(f"Risk ayarları dosyası bulunamadı, varsayılan ayarlar kullanılıyor: {self.settings_file}")
+                return self.default_settings.copy()
+                
+            # Dosyayı oku
+            with open(self.settings_file, 'r') as f:
+                settings = json.load(f)
+                
+            # Eksik ayarları varsayılanlarla tamamla
+            for key, value in self.default_settings.items():
+                if key not in settings:
+                    settings[key] = value
+                    
+            self.logger.info(f"Risk ayarları başarıyla yüklendi: {self.settings_file}")
+            return settings
+            
+        except FileNotFoundError:
+            self.logger.warning(f"Risk ayarları dosyası bulunamadı: {self.settings_file}, varsayılan ayarlar kullanılıyor")
+            return self.default_settings.copy()
+        except json.JSONDecodeError:
+            self.logger.error(f"Risk ayarları dosyası geçersiz JSON formatında: {self.settings_file}, varsayılan ayarlar kullanılıyor")
+            return self.default_settings.copy()
+        except PermissionError:
+            self.logger.error(f"Risk ayarları dosyasına erişim izni yok: {self.settings_file}, varsayılan ayarlar kullanılıyor")
+            return self.default_settings.copy()
+        except Exception as e:
+            self.logger.error(f"Risk ayarları yüklenirken beklenmeyen hata: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return self.default_settings.copy()
+            
+    def save_settings(self, settings: Dict) -> bool:
+        """Risk ayarlarını kaydet"""
+        try:
+            # Data dizini yoksa oluştur
+            data_dir = os.path.dirname(self.settings_file)
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+                self.logger.info(f"Data dizini oluşturuldu: {data_dir}")
+                
+            # Ayarları kaydet
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=4)
+                
+            self.settings = settings
+            self.logger.info(f"Risk ayarları başarıyla kaydedildi: {self.settings_file}")
+            return True
+            
+        except PermissionError:
+            self.logger.error(f"Risk ayarları dosyasına yazma izni yok: {self.settings_file}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Risk ayarları kaydedilirken beklenmeyen hata: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
+            
+    def update_settings(self, new_settings: Dict) -> bool:
+        """Risk ayarlarını güncelle"""
+        try:
+            # Mevcut ayarları al
+            current_settings = self.settings.copy()
+            
+            # Yeni ayarları ekle/güncelle
+            for key, value in new_settings.items():
+                if key in self.default_settings:
+                    # Değer tipini kontrol et ve dönüştür
+                    if isinstance(self.default_settings[key], bool):
+                        if isinstance(value, str):
+                            current_settings[key] = value.lower() in ['true', 'yes', '1', 'evet']
+                        else:
+                            current_settings[key] = bool(value)
+                    elif isinstance(self.default_settings[key], float):
+                        try:
+                            current_settings[key] = float(value)
+                        except (ValueError, TypeError):
+                            self.logger.warning(f"Geçersiz değer: {key}={value}, varsayılan değer kullanılıyor")
+                    elif isinstance(self.default_settings[key], int):
+                        try:
+                            current_settings[key] = int(value)
+                        except (ValueError, TypeError):
+                            self.logger.warning(f"Geçersiz değer: {key}={value}, varsayılan değer kullanılıyor")
+                    else:
+                        current_settings[key] = value
+                else:
+                    self.logger.warning(f"Bilinmeyen ayar: {key}")
+            
+            # Ayarları kaydet
+            return self.save_settings(current_settings)
+            
+        except Exception as e:
+            self.logger.error(f"Risk ayarları güncellenirken hata: {str(e)}")
+            return False
+            
+    def calculate_position_size(self, account_balance: float, current_price: float, symbol: str) -> float:
+        """Pozisyon büyüklüğünü hesapla"""
+        try:
+            # Risk yönetimi devre dışı ise varsayılan değeri döndür
+            if not self.settings.get('enable_risk_management', True):
+                return account_balance * 0.05  # Varsayılan %5
+                
+            # Maksimum pozisyon büyüklüğü
+            max_position_size_percent = self.settings.get('max_position_size_percent', 5.0)
+            max_position_size = account_balance * (max_position_size_percent / 100)
+            
+            # İşlem başına maksimum risk
+            max_risk_per_trade_percent = self.settings.get('max_risk_per_trade_percent', 1.0)
+            max_risk_amount = account_balance * (max_risk_per_trade_percent / 100)
+            
+            # Stop loss yüzdesi
+            stop_loss_percent = self.settings.get('stop_loss_percent', 3.0)
+            
+            # Risk bazlı pozisyon büyüklüğü hesapla
+            if stop_loss_percent > 0:
+                position_size = max_risk_amount / (stop_loss_percent / 100)
+            else:
+                position_size = max_position_size
+                
+            # Maksimum pozisyon büyüklüğünü aşmamasını sağla
+            position_size = min(position_size, max_position_size)
+            
+            self.logger.info(f"Hesaplanan pozisyon büyüklüğü: {position_size:.2f} USDT")
+            return position_size
+            
+        except Exception as e:
+            self.logger.error(f"Pozisyon büyüklüğü hesaplanırken hata: {str(e)}")
+            return account_balance * 0.05  # Hata durumunda varsayılan %5
+            
+    def calculate_stop_loss(self, entry_price: float, position_type: str) -> float:
+        """Stop loss fiyatını hesapla"""
+        try:
+            # Risk yönetimi veya stop loss devre dışı ise None döndür
+            if not self.settings.get('enable_risk_management', True) or not self.settings.get('enable_stop_loss', True):
+                return None
+                
+            stop_loss_percent = self.settings.get('stop_loss_percent', 3.0)
+            
+            if position_type.upper() == 'LONG':
+                stop_loss_price = entry_price * (1 - stop_loss_percent / 100)
+            else:  # SHORT
+                stop_loss_price = entry_price * (1 + stop_loss_percent / 100)
+                
+            self.logger.info(f"Hesaplanan stop loss: {stop_loss_price:.2f}")
+            return stop_loss_price
+            
+        except Exception as e:
+            self.logger.error(f"Stop loss hesaplanırken hata: {str(e)}")
+            return None
+            
+    def calculate_take_profit(self, entry_price: float, position_type: str) -> float:
+        """Take profit fiyatını hesapla"""
+        try:
+            # Risk yönetimi veya take profit devre dışı ise None döndür
+            if not self.settings.get('enable_risk_management', True) or not self.settings.get('enable_take_profit', True):
+                return None
+                
+            take_profit_percent = self.settings.get('take_profit_percent', 5.0)
+            
+            if position_type.upper() == 'LONG':
+                take_profit_price = entry_price * (1 + take_profit_percent / 100)
+            else:  # SHORT
+                take_profit_price = entry_price * (1 - take_profit_percent / 100)
+                
+            self.logger.info(f"Hesaplanan take profit: {take_profit_price:.2f}")
+            return take_profit_price
+            
+        except Exception as e:
+            self.logger.error(f"Take profit hesaplanırken hata: {str(e)}")
+            return None
+            
+    def update_trailing_stop(self, entry_price: float, current_price: float, position_type: str, 
+                           current_stop_loss: Optional[float] = None) -> Optional[float]:
+        """Takip eden stop fiyatını güncelle"""
+        try:
+            # Risk yönetimi veya trailing stop devre dışı ise None döndür
+            if not self.settings.get('enable_risk_management', True) or not self.settings.get('enable_trailing_stop', True):
+                return current_stop_loss
+                
+            trailing_stop_percent = self.settings.get('trailing_stop_percent', 2.0)
+            
+            # Mevcut stop loss yoksa hesapla
+            if current_stop_loss is None:
+                current_stop_loss = self.calculate_stop_loss(entry_price, position_type)
+                if current_stop_loss is None:
+                    return None
+            
+            # LONG pozisyon için trailing stop hesapla
+            if position_type.upper() == 'LONG':
+                # Yeni trailing stop
+                new_stop_loss = current_price * (1 - trailing_stop_percent / 100)
+                
+                # Mevcut stop loss'tan daha yüksekse güncelle
+                if new_stop_loss > current_stop_loss:
+                    self.logger.info(f"Trailing stop güncellendi: {current_stop_loss:.2f} -> {new_stop_loss:.2f}")
+                    return new_stop_loss
+                    
+            # SHORT pozisyon için trailing stop hesapla
+            else:  # SHORT
+                # Yeni trailing stop
+                new_stop_loss = current_price * (1 + trailing_stop_percent / 100)
+                
+                # Mevcut stop loss'tan daha düşükse güncelle
+                if new_stop_loss < current_stop_loss:
+                    self.logger.info(f"Trailing stop güncellendi: {current_stop_loss:.2f} -> {new_stop_loss:.2f}")
+                    return new_stop_loss
+            
+            # Değişiklik yoksa mevcut stop loss'u döndür
+            return current_stop_loss
+            
+        except Exception as e:
+            self.logger.error(f"Trailing stop güncellenirken hata: {str(e)}")
+            return current_stop_loss
+            
+    def check_daily_loss_limit(self, account_balance: float, starting_balance: float) -> bool:
+        """Günlük zarar limitini kontrol et"""
+        try:
+            # Risk yönetimi devre dışı ise True döndür
+            if not self.settings.get('enable_risk_management', True):
+                return True
+                
+            max_daily_loss_percent = self.settings.get('max_daily_loss_percent', 5.0)
+            
+            # Günlük zarar yüzdesi
+            daily_loss_percent = (starting_balance - account_balance) / starting_balance * 100
+            
+            # Zarar limiti aşıldı mı?
+            if daily_loss_percent > max_daily_loss_percent:
+                self.logger.warning(f"Günlük zarar limiti aşıldı: {daily_loss_percent:.2f}% > {max_daily_loss_percent:.2f}%")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Günlük zarar limiti kontrol edilirken hata: {str(e)}")
+            return True  # Hata durumunda işlem yapmaya devam et
+            
+    def check_max_open_positions(self, current_open_positions: int) -> bool:
+        """Maksimum açık pozisyon sayısını kontrol et"""
+        try:
+            # Risk yönetimi devre dışı ise True döndür
+            if not self.settings.get('enable_risk_management', True):
+                return True
+                
+            max_open_positions = self.settings.get('max_open_positions', 3)
+            
+            # Maksimum açık pozisyon sayısı aşıldı mı?
+            if current_open_positions >= max_open_positions:
+                self.logger.warning(f"Maksimum açık pozisyon sayısı aşıldı: {current_open_positions} >= {max_open_positions}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Maksimum açık pozisyon sayısı kontrol edilirken hata: {str(e)}")
+            return True  # Hata durumunda işlem yapmaya devam et

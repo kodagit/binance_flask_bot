@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Sol Panel -->
+    <div class="col-md-3">
+        <!-- Strateji Seçimi -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Strateji Seçimi</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="strategy-select" class="form-label">Strateji</label>
+                    <select class="form-select" id="strategy-select">
+                        {% for strategy in strategies %}
+                        <option value="{{ strategy }}">{{ strategy }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary w-100" id="load-strategy">Strateji Yükle</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Sağ Panel -->
+    <div class="col-md-9">
+        <!-- Strateji Parametreleri -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Strateji Parametreleri</h5>
+            </div>
+            <div class="card-body">
+                <div id="parameters-container">
+                    {% if strategy_params and strategy_params|length > 0 %}
+                        <form id="paramForm">
+                            {% for strategy, params in strategy_params.items() %}
+                            <div class="strategy-param-group" data-strategy="{{ strategy }}" style="display: none;">
+                                <h5>{{ strategy }} Parametreleri</h5>
+                                {% if params|length > 0 %}
+                                    {% for param_name, param_info in params.items() %}
+                                    <div class="mb-3">
+                                        <label for="{{ param_name }}" class="form-label">
+                                            {{ param_info.description }}
+                                        </label>
+                                        
+                                        {% if param_info.type == 'select' %}
+                                        <select class="form-select" id="{{ param_name }}" name="{{ param_name }}">
+                                            {% for option in param_info.options %}
+                                            <option value="{{ option }}" {% if option == param_info.default %}selected{% endif %}>{{ option }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        {% elif param_info.type == 'number' %}
+                                        <input type="number" class="form-control" id="{{ param_name }}" name="{{ param_name }}" 
+                                            value="{{ param_info.default }}" 
+                                            {% if param_info.min is defined %}min="{{ param_info.min }}"{% endif %}
+                                            {% if param_info.max is defined %}max="{{ param_info.max }}"{% endif %}
+                                            {% if param_info.step is defined %}step="{{ param_info.step }}"{% endif %}>
+                                        {% elif param_info.type == 'boolean' %}
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="{{ param_name }}" name="{{ param_name }}" 
+                                                {% if param_info.default %}checked{% endif %}>
+                                        </div>
+                                        {% else %}
+                                        <input type="text" class="form-control" id="{{ param_name }}" name="{{ param_name }}" 
+                                            value="{{ param_info.default }}">
+                                        {% endif %}
+                                        
+                                        {% if param_info.help %}
+                                        <div class="form-text">{{ param_info.help }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="alert alert-info">
+                                        Bu strateji için parametre bulunamadı.
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                            
+                            <div class="mt-3">
+                                <button type="button" id="saveParams" class="btn btn-success">Kaydet</button>
+                                <button type="button" id="resetParams" class="btn btn-secondary">Varsayılana Sıfırla</button>
+                            </div>
+                        </form>
+                    {% else %}
+                        <div class="alert alert-warning">
+                            Bu strateji için parametre bulunamadı.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<title>Strateji Konfigürasyonu - Binance Trading Bot</title>
+<style>
+    .parameter-card {
+        margin-bottom: 15px;
+        border: 1px solid #eee;
+        border-radius: 5px;
+        padding: 15px;
+    }
+    .parameter-description {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 5px;
+    }
+    .range-value {
+        font-weight: bold;
+        margin-left: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Strateji yükleme
+        $('#load-strategy').click(function() {
+            const strategy = $('#strategy-select').val();
+            loadStrategyParameters(strategy);
+        });
+        
+        // Parametre formunu gönderme
+        $('#strategy-form').submit(function(e) {
+            e.preventDefault();
+            saveStrategyParameters();
+        });
+        
+        // Parametreleri varsayılana sıfırlama
+        $('#reset-button').click(function() {
+            const strategy = $('#strategy-select').val();
+            resetStrategyParameters(strategy);
+        });
+        
+        // Sayfa yüklendiğinde ilk stratejiyi yükle
+        if ($('#strategy-select').val()) {
+            loadStrategyParameters($('#strategy-select').val());
+        }
+    });
+    
+    // Strateji parametrelerini yükle
+    function loadStrategyParameters(strategy) {
+        $('#parameters-container').html('<div class="text-center"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Parametreler yükleniyor...</p></div>');
+        
+        console.log("Strateji parametreleri yükleniyor:", strategy);
+        
+        $.ajax({
+            url: '/api/strategy/parameters',
+            type: 'GET',
+            data: { strategy: strategy },
+            success: function(response) {
+                console.log("Strateji parametreleri alındı:", response);
+                displayParameters(response, strategy);
+            },
+            error: function(xhr, status, error) {
+                console.error("Strateji parametreleri alınırken hata:", xhr.responseText);
+                $('#parameters-container').html(`
+                    <div class="alert alert-danger">
+                        <strong>Hata:</strong> ${error}
+                        <br><small>${xhr.responseText}</small>
+                    </div>
+                `);
+            }
+        });
+    }
+    
+    // Parametreleri göster
+    function displayParameters(parameters, strategy) {
+        console.log("Parameters being displayed:", parameters);
+        
+        if (!parameters) {
+            $('#parameters-container').html('<div class="alert alert-warning">Parameter data could not be retrieved.</div>');
+            return;
+        }
+        
+        // Check if parameters exist in the expected format
+        if (!parameters.parameters || Object.keys(parameters.parameters).length === 0) {
+            $('#parameters-container').html('<div class="alert alert-warning">No parameters found for this strategy.</div>');
+            return;
+        }
+        
+        let html = `
+            <form id="strategy-form">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>${strategy}</h4>
+                    <div>
+                        <button type="button" id="reset-button" class="btn btn-outline-secondary me-2">Reset to Default</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                </div>
+                <p class="text-muted mb-4">${parameters.description || 'No strategy description available.'}</p>
+        `;
+        
+        // Determine used indicators
+        const indicators = getUsedIndicators(parameters.parameters);
+        
+        if (indicators.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h5>Indicators Used</h5>
+                    <div class="d-flex flex-wrap">
+            `;
+            
+            indicators.forEach(indicator => {
+                html += `
+                    <span class="badge bg-info text-dark me-2 mb-2 p-2">
+                        <i class="fas fa-chart-line me-1"></i> ${indicator}
+                    </span>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Group parameters
+        const groupedParams = groupParameters(parameters.parameters);
+        
+        // Add parameters by group
+        Object.keys(groupedParams).forEach(group => {
+            const params = groupedParams[group];
+            
+            html += `
+                <div class="parameter-card mb-4">
+                    <h5 class="mb-3">${formatGroupName(group)}</h5>
+                    <div class="row">
+            `;
+            
+            // Add each parameter in this group
+            Object.keys(params).forEach(paramName => {
+                const param = params[paramName];
+                
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <label for="${paramName}" class="form-label">
+                            ${param.description || paramName}
+                        </label>
+                `;
+                
+                // Render different input types based on parameter type
+                if (param.type === 'int' || param.type === 'float') {
+                    const step = param.type === 'int' ? 1 : 0.1;
+                    html += `
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="${paramName}" name="${paramName}" 
+                                value="${param.default}" 
+                                min="${param.min}" 
+                                max="${param.max}" 
+                                step="${param.step || step}">
+                            <span class="input-group-text">${param.unit || ''}</span>
+                        </div>
+                    `;
+                } else if (param.type === 'boolean') {
+                    html += `
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="${paramName}" name="${paramName}" 
+                                ${param.default ? 'checked' : ''}>
+                        </div>
+                    `;
+                } else if (param.type === 'select' && param.options) {
+                    html += `
+                        <select class="form-select" id="${paramName}" name="${paramName}">
+                    `;
+                    
+                    param.options.forEach(option => {
+                        html += `
+                            <option value="${option}" ${option === param.default ? 'selected' : ''}>${option}</option>
+                        `;
+                    });
+                    
+                    html += `
+                        </select>
+                    `;
+                } else {
+                    html += `
+                        <input type="text" class="form-control" id="${paramName}" name="${paramName}" 
+                            value="${param.default}">
+                    `;
+                }
+                
+                // Add help text if available
+                if (param.help) {
+                    html += `
+                        <div class="form-text">${param.help}</div>
+                    `;
+                }
+                
+                html += `
+                    </div>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                <div class="d-flex justify-content-end mt-4">
+                    <button type="button" id="reset-button" class="btn btn-outline-secondary me-2">Reset to Default</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        `;
+        
+        $('#parameters-container').html(html);
+        
+        // Set up event handlers
+        $('#strategy-form').on('submit', function(e) {
+            e.preventDefault();
+            saveStrategyParameters(strategy);
+        });
+        
+        $('#reset-button').on('click', function() {
+            resetStrategyParameters(strategy);
+        });
+    }
+    
+    // Group parameters by prefix (before first underscore)
+    function groupParameters(parameters) {
+        const groups = {};
+        
+        Object.keys(parameters).forEach(paramName => {
+            const groupMatch = paramName.match(/^([^_]+)/);
+            const group = groupMatch ? groupMatch[1] : 'general';
+            
+            if (!groups[group]) {
+                groups[group] = {};
+            }
+            
+            groups[group][paramName] = parameters[paramName];
+        });
+        
+        return groups;
+    }
+    
+    // Determine used indicators
+    function getUsedIndicators(parameters) {
+        const indicators = new Set();
+        
+        // Extract indicators from parameter names
+        for (const key in parameters) {
+            const parts = key.split('_');
+            const indicator = parts[0].toLowerCase();
+            
+            // Add known indicators
+            if (['ema', 'sma', 'rsi', 'macd', 'stoch', 'bollinger', 'atr', 'supertrend', 'adx', 'cci', 'mfi', 'obv', 'vwap'].includes(indicator)) {
+                // Add indicator in proper format
+                switch (indicator) {
+                    case 'ema': indicators.add('EMA (Exponential Moving Average)'); break;
+                    case 'sma': indicators.add('SMA (Simple Moving Average)'); break;
+                    case 'rsi': indicators.add('RSI (Relative Strength Index)'); break;
+                    case 'macd': indicators.add('MACD (Moving Average Convergence/Divergence)'); break;
+                    case 'stoch': indicators.add('Stochastic Oscillator'); break;
+                    case 'bollinger': indicators.add('Bollinger Bands'); break;
+                    case 'atr': indicators.add('ATR (Average True Range)'); break;
+                    case 'supertrend': indicators.add('SuperTrend'); break;
+                    case 'adx': indicators.add('ADX (Average Directional Index)'); break;
+                    case 'cci': indicators.add('CCI (Commodity Channel Index)'); break;
+                    case 'mfi': indicators.add('MFI (Money Flow Index)'); break;
+                    case 'obv': indicators.add('OBV (On-Balance Volume)'); break;
+                    case 'vwap': indicators.add('VWAP (Volume-Weighted Average Price)'); break;
+                    default: indicators.add(indicator.toUpperCase());
+                }
+            }
+        }
+        
+        return Array.from(indicators);
+    }
+    
+    // Format group name
+    function formatGroupName(name) {
+        // Return known group names in proper format
+        switch (name.toLowerCase()) {
+            case 'ema': return 'EMA';
+            case 'sma': return 'SMA';
+            case 'rsi': return 'RSI';
+            case 'macd': return 'MACD';
+            case 'stoch': return 'Stochastic';
+            case 'bollinger': return 'Bollinger';
+            case 'atr': return 'ATR';
+            case 'supertrend': return 'SuperTrend';
+            case 'adx': return 'ADX';
+            case 'signal': return 'Signal';
+            case 'trend': return 'Trend';
+            case 'timeframe': return 'Timeframe';
+            case 'confidence': return 'Confidence';
+            case 'take': return 'Take Profit';
+            case 'stop': return 'Stop Loss';
+            case 'trailing': return 'Trailing Stop';
+            default: return name.charAt(0).toUpperCase() + name.slice(1);
+        }
+    }
+    
+    // Save strategy parameters
+    function saveStrategyParameters(strategy) {
+        if (!strategy) {
+            strategy = $('#strategy-select').val();
+        }
+        
+        const formData = {};
+        
+        // Get all form inputs
+        const form = $('#strategy-form');
+        
+        // Collect all form inputs
+        form.find('input, select').each(function() {
+            const input = $(this);
+            const name = input.attr('name');
+            let value;
+            
+            if (input.attr('type') === 'checkbox') {
+                value = input.is(':checked');
+            } else if (input.attr('type') === 'number') {
+                value = parseFloat(input.val());
+                if (isNaN(value)) {
+                    value = 0;
+                }
+            } else {
+                value = input.val();
+            }
+            
+            formData[name] = value;
+        });
+        
+        console.log('Saving parameters for strategy:', strategy, formData);
+        
+        // Send to server
+        $.ajax({
+            url: '/api/strategy/parameters',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                strategy: strategy,
+                parameters: formData
+            }),
+            success: function(response) {
+                console.log('Parameters saved successfully:', response);
+                showAlert('success', 'Parameters saved successfully');
+            },
+            error: function(xhr, status, error) {
+                console.error('Error saving parameters:', xhr.responseText);
+                showAlert('danger', `Error saving parameters: ${error}`);
+            }
+        });
+    }
+    
+    // Reset strategy parameters to default
+    function resetStrategyParameters(strategy) {
+        if (!strategy) {
+            strategy = $('#strategy-select').val();
+        }
+        
+        if (confirm('Are you sure you want to reset all parameters to their default values?')) {
+            console.log('Resetting parameters for strategy:', strategy);
+            
+            // Reload parameters from server
+            loadStrategyParameters(strategy);
+        }
+    }
+    
+    // Show alert message
+    function showAlert(type, message) {
+        const alertHtml = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // Add alert to top of parameters container
+        const container = $('#parameters-container');
+        container.prepend(alertHtml);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(function() {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+</script>
+
+<style>
+    .parameter-card {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .parameter-description {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-top: 5px;
+    }
+    
+    .range-value {
+        float: right;
+        font-weight: bold;
+    }
+    
+    .badge {
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}

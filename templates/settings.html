@@ -1,0 +1,570 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <!-- API Ayarları -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">API Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form id="apiKeyForm">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="testnet" name="testnet" {% if testnet %}checked{% endif %}>
+                        <label class="form-check-label" for="testnet">
+                            Testnet Kullan
+                        </label>
+                    </div>
+                    
+                    <div class="card mb-4">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0">Live API Anahtarları</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="live_api_key" class="form-label">Live API Key</label>
+                                <input type="text" class="form-control" id="live_api_key" name="live_api_key" placeholder="Live API Key" value="{{ live_api_key }}">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="live_api_secret" class="form-label">Live API Secret</label>
+                                <input type="password" class="form-control" id="live_api_secret" name="live_api_secret" placeholder="Live API Secret" value="{{ live_api_secret }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card mb-4">
+                        <div class="card-header bg-warning text-dark">
+                            <h6 class="mb-0">Testnet API Anahtarları</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="test_api_key" class="form-label">Testnet API Key</label>
+                                <input type="text" class="form-control" id="test_api_key" name="test_api_key" placeholder="Testnet API Key" value="{{ test_api_key }}">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="test_api_secret" class="form-label">Testnet API Secret</label>
+                                <input type="password" class="form-control" id="test_api_secret" name="test_api_secret" placeholder="Testnet API Secret" value="{{ test_api_secret }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                    <button type="button" id="testApiBtn" class="btn btn-outline-secondary">Bağlantıyı Test Et</button>
+                    <div id="apiStatus" class="mt-2">
+                        <div id="liveApiStatus"></div>
+                        <div id="testnetApiStatus"></div>
+                        <div id="activeMode"></div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Favori Semboller -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Favori Semboller</h5>
+            </div>
+            <div class="card-body">
+                <form id="favorites-form">
+                    <div class="mb-3">
+                        <label for="favorite_symbols" class="form-label">Semboller (virgülle ayırın)</label>
+                        <input type="text" class="form-control" id="favorite_symbols" name="favorite_symbols" value="{{ favorite_symbols|join(',') }}">
+                        <div class="form-text">Örnek: BTCUSDT,ETHUSDT,BNBUSDT</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <!-- Bildirim Ayarları -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Bildirim Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form id="notification-form">
+                    <div class="mb-3">
+                        <label for="telegram_token" class="form-label">Telegram Bot Token</label>
+                        <input type="text" class="form-control" id="telegram_token" name="telegram_token" value="{{ telegram_token }}">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="telegram_chat_id" class="form-label">Telegram Chat ID</label>
+                        <input type="text" class="form-control" id="telegram_chat_id" name="telegram_chat_id" value="{{ telegram_chat_id }}">
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="notify_trades" name="notify_trades" {% if notify_trades %}checked{% endif %}>
+                        <label class="form-check-label" for="notify_trades">
+                            İşlem Bildirimleri
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="notify_signals" name="notify_signals" {% if notify_signals %}checked{% endif %}>
+                        <label class="form-check-label" for="notify_signals">
+                            Sinyal Bildirimleri
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Risk Yönetimi Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form id="riskSettingsForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_risk_management">
+                                    <label class="form-check-label" for="enable_risk_management">Risk Yönetimini Aktifleştir</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="max_position_size_percent">Maksimum Pozisyon Büyüklüğü (%)</label>
+                                <input type="number" class="form-control" id="max_position_size_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">Toplam bakiyenin yüzdesi olarak maksimum pozisyon büyüklüğü</small>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="max_open_positions">Maksimum Açık Pozisyon Sayısı</label>
+                                <input type="number" class="form-control" id="max_open_positions" min="1" max="10" step="1">
+                                <small class="form-text text-muted">Aynı anda açık olabilecek maksimum pozisyon sayısı</small>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="max_daily_loss_percent">Günlük Maksimum Zarar (%)</label>
+                                <input type="number" class="form-control" id="max_daily_loss_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">Günlük maksimum zarar yüzdesi</small>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="max_risk_per_trade_percent">İşlem Başına Maksimum Risk (%)</label>
+                                <input type="number" class="form-control" id="max_risk_per_trade_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">İşlem başına maksimum risk yüzdesi</small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_stop_loss">
+                                    <label class="form-check-label" for="enable_stop_loss">Zarar Durdurma Kullan</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="stop_loss_percent">Zarar Durdurma Yüzdesi (%)</label>
+                                <input type="number" class="form-control" id="stop_loss_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">Giriş fiyatına göre zarar durdurma yüzdesi</small>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_take_profit">
+                                    <label class="form-check-label" for="enable_take_profit">Kar Alma Kullan</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="take_profit_percent">Kar Alma Yüzdesi (%)</label>
+                                <input type="number" class="form-control" id="take_profit_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">Giriş fiyatına göre kar alma yüzdesi</small>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_trailing_stop">
+                                    <label class="form-check-label" for="enable_trailing_stop">Takip Eden Stop Kullan</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group mb-3">
+                                <label for="trailing_stop_percent">Takip Eden Stop Yüzdesi (%)</label>
+                                <input type="number" class="form-control" id="trailing_stop_percent" min="0.1" max="100" step="0.1">
+                                <small class="form-text text-muted">Mevcut fiyata göre takip eden stop yüzdesi</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group mt-3">
+                        <button type="submit" class="btn btn-primary">Risk Ayarlarını Kaydet</button>
+                        <button type="button" class="btn btn-secondary" id="resetRiskSettings">Varsayılan Ayarlara Dön</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Sayfa yüklendiğinde çalışacak kodlar
+    document.addEventListener('DOMContentLoaded', function() {
+        // API ayarlarını yükle
+        loadApiSettings();
+        
+        // Risk ayarlarını yükle
+        loadRiskSettings();
+        
+        // API anahtarları formunu dinle
+        document.getElementById('apiKeyForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveApiKeys();
+        });
+        
+        // Risk ayarları formunu dinle
+        document.getElementById('riskSettingsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveRiskSettings();
+        });
+        
+        // Risk ayarlarını sıfırlama butonunu dinle
+        document.getElementById('resetRiskSettings').addEventListener('click', function() {
+            if (confirm('Risk ayarlarını varsayılan değerlere sıfırlamak istediğinize emin misiniz?')) {
+                resetRiskSettings();
+            }
+        });
+        
+        // API bağlantısı test butonunu dinle
+        document.getElementById('testApiBtn').addEventListener('click', function() {
+            testApiConnection();
+        });
+    });
+    
+    // API ayarlarını yükle
+    function loadApiSettings() {
+        fetch('/api/settings')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('API anahtarları alınamadı');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // API anahtarlarını form alanlarına yerleştir
+                document.getElementById('live_api_key').value = data.live_api_key || '';
+                document.getElementById('live_api_secret').value = data.live_api_secret || '';
+                document.getElementById('test_api_key').value = data.test_api_key || '';
+                document.getElementById('test_api_secret').value = data.test_api_secret || '';
+                document.getElementById('testnet').checked = data.testnet || false;
+            })
+            .catch(error => {
+                console.error('Hata:', error);
+                showToast('error', 'API anahtarları alınamadı: ' + error.message);
+            });
+    }
+    
+    // API anahtarlarını kaydet
+    function saveApiKeys() {
+        const live_api_key = document.getElementById('live_api_key').value.trim();
+        const live_api_secret = document.getElementById('live_api_secret').value.trim();
+        const test_api_key = document.getElementById('test_api_key').value.trim();
+        const test_api_secret = document.getElementById('test_api_secret').value.trim();
+        
+        // API anahtarlarını kontrol et
+        if (!live_api_key || !live_api_secret || !test_api_key || !test_api_secret) {
+            showToast('error', 'API anahtarları boş olamaz');
+            return;
+        }
+        
+        // Yükleniyor göster
+        const saveButton = document.querySelector('#apiKeyForm button[type="submit"]');
+        const originalText = saveButton.innerHTML;
+        saveButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Kaydediliyor...';
+        saveButton.disabled = true;
+        
+        // API anahtarlarını kaydet
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                live_api_key: live_api_key,
+                live_api_secret: live_api_secret,
+                test_api_key: test_api_key,
+                test_api_secret: test_api_secret,
+                testnet: document.getElementById('testnet').checked
+            }),
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('API anahtarları kaydedilemedi');
+            }
+            return response.json();
+        })
+        .then(data => {
+            showToast('success', 'API anahtarları başarıyla kaydedildi');
+            
+            // API bağlantısını test et
+            testApiConnection();
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            showToast('error', 'API anahtarları kaydedilemedi: ' + error.message);
+        })
+        .finally(() => {
+            // Yükleniyor gizle
+            saveButton.innerHTML = originalText;
+            saveButton.disabled = false;
+        });
+    }
+    
+    // API bağlantısını test et
+    function testApiConnection() {
+        // API bağlantısını test et butonuna tıklandığında
+        $('#testApiBtn').click(function() {
+            $(this).prop('disabled', true);
+            $(this).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Test Ediliyor...');
+            
+            // API anahtarlarını kontrol et
+            $.ajax({
+                url: '/api/check_keys',
+                type: 'GET',
+                success: function(response) {
+                    $('#testApiBtn').prop('disabled', false);
+                    $('#testApiBtn').html('Bağlantıyı Test Et');
+                    
+                    console.log("API yanıtı:", response);
+                    
+                    // Live API durumu
+                    if (response.live && response.live.status) {
+                        $('#liveApiStatus').html('<div class="alert alert-success mt-2">Live API: <strong>Başarılı</strong> - ' + response.live.message + '</div>');
+                    } else {
+                        $('#liveApiStatus').html('<div class="alert alert-danger mt-2">Live API: <strong>Başarısız</strong> - ' + (response.live ? response.live.message : 'Bağlantı hatası') + '</div>');
+                    }
+                    
+                    // Testnet API durumu
+                    if (response.testnet && response.testnet.status) {
+                        $('#testnetApiStatus').html('<div class="alert alert-success mt-2">Testnet API: <strong>Başarılı</strong> - ' + response.testnet.message + '</div>');
+                    } else {
+                        $('#testnetApiStatus').html('<div class="alert alert-danger mt-2">Testnet API: <strong>Başarısız</strong> - ' + (response.testnet ? response.testnet.message : 'Bağlantı hatası') + '</div>');
+                    }
+                    
+                    // Aktif mod
+                    let activeMode = '';
+                    if (response.active === 'live') {
+                        activeMode = '<span class="badge bg-primary">Live</span>';
+                    } else if (response.active === 'testnet') {
+                        activeMode = '<span class="badge bg-warning text-dark">Testnet</span>';
+                    } else {
+                        activeMode = '<span class="badge bg-danger">Bağlantı Yok</span>';
+                    }
+                    $('#activeMode').html('<div class="alert alert-info mt-2">Aktif Mod: ' + activeMode + '</div>');
+                    
+                    showToast('success', 'API bağlantı testi tamamlandı');
+                },
+                error: function(xhr, status, error) {
+                    $('#testApiBtn').prop('disabled', false);
+                    $('#testApiBtn').html('Bağlantıyı Test Et');
+                    
+                    console.error("API hatası:", xhr.responseJSON || error);
+                    
+                    $('#liveApiStatus').html('<div class="alert alert-danger mt-2">Live API: <strong>Hata</strong> - Bağlantı kurulamadı</div>');
+                    $('#testnetApiStatus').html('<div class="alert alert-danger mt-2">Testnet API: <strong>Hata</strong> - Bağlantı kurulamadı</div>');
+                    $('#activeMode').html('<div class="alert alert-danger mt-2">Aktif Mod: <span class="badge bg-danger">Hata</span></div>');
+                    
+                    showToast('error', 'API bağlantı testi sırasında hata oluştu: ' + (xhr.responseJSON?.error || error));
+                }
+            });
+        });
+    }
+    
+    // Risk ayarlarını yükle
+    function loadRiskSettings() {
+        fetch('/api/risk/settings')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Risk ayarları alınamadı');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Checkbox'ları ayarla
+                document.getElementById('enable_risk_management').checked = data.enable_risk_management || false;
+                document.getElementById('enable_stop_loss').checked = data.enable_stop_loss || false;
+                document.getElementById('enable_take_profit').checked = data.enable_take_profit || false;
+                document.getElementById('enable_trailing_stop').checked = data.enable_trailing_stop || false;
+                
+                // Sayısal değerleri ayarla
+                document.getElementById('max_position_size_percent').value = data.max_position_size_percent || 5.0;
+                document.getElementById('max_open_positions').value = data.max_open_positions || 3;
+                document.getElementById('max_daily_loss_percent').value = data.max_daily_loss_percent || 5.0;
+                document.getElementById('max_risk_per_trade_percent').value = data.max_risk_per_trade_percent || 1.0;
+                document.getElementById('stop_loss_percent').value = data.stop_loss_percent || 3.0;
+                document.getElementById('take_profit_percent').value = data.take_profit_percent || 5.0;
+                document.getElementById('trailing_stop_percent').value = data.trailing_stop_percent || 2.0;
+            })
+            .catch(error => {
+                console.error('Hata:', error);
+                showToast('error', 'Risk ayarları alınamadı: ' + error.message);
+            });
+    }
+    
+    // Risk ayarlarını kaydet
+    function saveRiskSettings() {
+        // Form verilerini al
+        const settings = {
+            enable_risk_management: document.getElementById('enable_risk_management').checked,
+            enable_stop_loss: document.getElementById('enable_stop_loss').checked,
+            enable_take_profit: document.getElementById('enable_take_profit').checked,
+            enable_trailing_stop: document.getElementById('enable_trailing_stop').checked,
+            max_position_size_percent: parseFloat(document.getElementById('max_position_size_percent').value),
+            max_open_positions: parseInt(document.getElementById('max_open_positions').value),
+            max_daily_loss_percent: parseFloat(document.getElementById('max_daily_loss_percent').value),
+            max_risk_per_trade_percent: parseFloat(document.getElementById('max_risk_per_trade_percent').value),
+            stop_loss_percent: parseFloat(document.getElementById('stop_loss_percent').value),
+            take_profit_percent: parseFloat(document.getElementById('take_profit_percent').value),
+            trailing_stop_percent: parseFloat(document.getElementById('trailing_stop_percent').value)
+        };
+        
+        // Değerleri kontrol et
+        if (isNaN(settings.max_position_size_percent) || settings.max_position_size_percent <= 0) {
+            showToast('error', 'Maksimum pozisyon büyüklüğü geçersiz');
+            return;
+        }
+        
+        if (isNaN(settings.max_open_positions) || settings.max_open_positions <= 0) {
+            showToast('error', 'Maksimum açık pozisyon sayısı geçersiz');
+            return;
+        }
+        
+        // Yükleniyor göster
+        const saveButton = document.querySelector('#riskSettingsForm button[type="submit"]');
+        const originalText = saveButton.innerHTML;
+        saveButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Kaydediliyor...';
+        saveButton.disabled = true;
+        
+        // Risk ayarlarını kaydet
+        fetch('/api/risk/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(settings),
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Risk ayarları kaydedilemedi');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showToast('success', 'Risk ayarları başarıyla kaydedildi');
+            } else {
+                showToast('error', data.message || 'Risk ayarları kaydedilemedi');
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            showToast('error', 'Risk ayarları kaydedilemedi: ' + error.message);
+        })
+        .finally(() => {
+            // Yükleniyor gizle
+            saveButton.innerHTML = originalText;
+            saveButton.disabled = false;
+        });
+    }
+    
+    // Risk ayarlarını sıfırla
+    function resetRiskSettings() {
+        // Yükleniyor göster
+        const resetButton = document.getElementById('resetRiskSettings');
+        const originalText = resetButton.innerHTML;
+        resetButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sıfırlanıyor...';
+        resetButton.disabled = true;
+        
+        // Varsayılan ayarları al ve kaydet
+        fetch('/api/risk/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                reset: true
+            }),
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Risk ayarları sıfırlanamadı');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showToast('success', 'Risk ayarları varsayılan değerlere sıfırlandı');
+                // Ayarları yeniden yükle
+                loadRiskSettings();
+            } else {
+                showToast('error', data.message || 'Risk ayarları sıfırlanamadı');
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            showToast('error', 'Risk ayarları sıfırlanamadı: ' + error.message);
+        })
+        .finally(() => {
+            // Yükleniyor gizle
+            resetButton.innerHTML = originalText;
+            resetButton.disabled = false;
+        });
+    }
+    
+    // Toast mesajı göster
+    function showToast(type, message) {
+        const toastContainer = document.getElementById('toastContainer');
+        if (!toastContainer) {
+            // Toast container yoksa oluştur
+            const container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'position-fixed bottom-0 end-0 p-3';
+            container.style.zIndex = '5';
+            document.body.appendChild(container);
+        }
+        
+        const toastId = 'toast-' + Date.now();
+        const toastHtml = `
+            <div id="${toastId}" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="toast-header ${type === 'error' ? 'bg-danger text-white' : 'bg-success text-white'}">
+                    <strong class="me-auto">${type === 'error' ? 'Hata' : 'Başarılı'}</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('toastContainer').innerHTML += toastHtml;
+        
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 5000 });
+        toast.show();
+        
+        // 5 saniye sonra toast'ı kaldır
+        setTimeout(() => {
+            toastElement.remove();
+        }, 5000);
+    }
+</script>
+{% endblock %}

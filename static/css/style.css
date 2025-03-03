@@ -1,0 +1,129 @@
+/* Ana stil dosyası */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    border: none;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+.footer {
+    margin-top: 30px;
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Sembol listesi */
+.favorite-coin {
+    transition: all 0.2s ease;
+}
+
+.favorite-coin:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Sinyal renkleri */
+.signal-buy {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.signal-sell {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.signal-hold {
+    color: #6c757d;
+}
+
+/* Backtest sonuçları */
+.result-card {
+    transition: all 0.3s ease;
+}
+
+.result-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.positive {
+    color: #28a745;
+}
+
+.negative {
+    color: #dc3545;
+}
+
+/* Formlar */
+.form-control:focus, .form-select:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Butonlar */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+/* Tablolar */
+.table {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table thead th {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+/* Grafikler */
+#chart, #backtest-chart, #equity-chart {
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: white;
+}
+
+/* Uyarılar */
+.alert {
+    border-radius: 8px;
+}
+
+/* Mobil uyumluluk */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 10px;
+    }
+    
+    .card {
+        margin-bottom: 15px;
+    }
+    
+    #chart, #backtest-chart {
+        height: 300px !important;
+    }
+    
+    #equity-chart {
+        height: 200px !important;
+    }
+}

@@ -1,0 +1,117 @@
+{
+    "strategies": {
+        "Always_Signal": {
+            "description": "Her zaman sinyal üreten test stratejisi",
+            "parameters": {
+                "signal_frequency": {
+                    "type": "int",
+                    "default": 2,
+                    "min": 1,
+                    "max": 10,
+                    "description": "Kaç mumda bir sinyal üretileceği"        
+                }
+            }
+        },
+        "Five_Stage_Approval": {
+            "description": "5 aşamalı onay sistemi ile işlem stratejisi",    
+            "parameters": {
+                "ema_short": {
+                    "type": "int",
+                    "default": 20,
+                    "min": 5,
+                    "max": 50,
+                    "description": "Kısa EMA periyodu"
+                },
+                "ema_long": {
+                    "type": "int",
+                    "default": 100,
+                    "min": 50,
+                    "max": 200,
+                    "description": "Uzun EMA periyodu"
+                },
+                "rsi_period": {
+                    "type": "int",
+                    "default": 14,
+                    "min": 7,
+                    "max": 21,
+                    "description": "RSI periyodu"
+                },
+                "rsi_oversold": {
+                    "type": "int",
+                    "default": 45,
+                    "min": 30,
+                    "max": 50,
+                    "description": "RSI aşırı satım seviyesi"
+                },
+                "rsi_overbought": {
+                    "type": "int",
+                    "default": 55,
+                    "min": 50,
+                    "max": 70,
+                    "description": "RSI aşırı alım seviyesi"
+                },
+                "supertrend_period": {
+                    "type": "int",
+                    "default": 7,
+                    "min": 5,
+                    "max": 20,
+                    "description": "SuperTrend periyodu"
+                },
+                "supertrend_multiplier": {
+                    "type": "float",
+                    "default": 2.5,
+                    "min": 1.0,
+                    "max": 5.0,
+                    "description": "SuperTrend çarpanı"
+                },
+                "stoch_rsi_oversold": {
+                    "type": "int",
+                    "default": 25,
+                    "min": 10,
+                    "max": 30,
+                    "description": "Stochastic RSI aşırı satım seviyesi"
+                },
+                "stoch_rsi_overbought": {
+                    "type": "int",
+                    "default": 75,
+                    "min": 70,
+                    "max": 90,
+                    "description": "Stochastic RSI aşırı alım seviyesi"     
+                }
+            }
+        },
+        "MACD_EMA": {
+            "description": "MACD ve EMA kesişimi stratejisi",
+            "parameters": {
+                "ema_period": {
+                    "type": "int",
+                    "default": 50,
+                    "min": 20,
+                    "max": 100,
+                    "description": "EMA periyodu"
+                },
+                "macd_fast": {
+                    "type": "int",
+                    "default": 12,
+                    "min": 8,
+                    "max": 20,
+                    "description": "MACD hızlı periyod"
+                },
+                "macd_slow": {
+                    "type": "int",
+                    "default": 26,
+                    "min": 20,
+                    "max": 40,
+                    "description": "MACD yavaş periyod"
+                },
+                "macd_signal": {
+                    "type": "int",
+                    "default": 9,
+                    "min": 5,
+                    "max": 15,
+                    "description": "MACD sinyal periyodu"
+                }
+            }
+        }
+    }
+}

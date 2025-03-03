@@ -1,0 +1,493 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <!-- Sol Panel -->
+    <div class="col-md-3">
+        <!-- Sembol Seçimi -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Sembol Seçimi</h5>
+            </div>
+            <div class="card-body">
+                <select class="form-select mb-3" id="symbol">
+                    {% for symbol in symbols %}
+                    <option value="{{ symbol }}">{{ symbol }}</option>
+                    {% endfor %}
+                </select>
+                
+                <select class="form-select mb-3" id="interval">
+                    {% for value, label in intervals %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- Favori Semboller -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Favori Semboller</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for symbol in favorite_symbols %}
+                    <button class="list-group-item list-group-item-action" onclick="changeSymbol('{{ symbol }}')">
+                        {{ symbol }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Bot Kontrolü -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Bot Kontrolü</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="bot-strategy" class="form-label">Strateji</label>
+                    <select class="form-select mb-3" id="bot-strategy">
+                        <option value="rsi_strategy">RSI Stratejisi</option>
+                        <option value="macd_strategy">MACD Stratejisi</option>
+                        <option value="bollinger_strategy">Bollinger Stratejisi</option>
+                        <option value="multi_strategy">5 Aşamalı Onay Stratejisi</option>
+                    </select>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button id="start-bot-btn" class="btn btn-success" onclick="toggleBot()">
+                        <i class="bi bi-play-fill"></i> Botu Başlat
+                    </button>
+                </div>
+                
+                <div class="mt-2 text-center">
+                    <span class="badge bg-secondary" id="bot-status">Durdu</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hesap Bilgileri -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div id="account-info">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Yükleniyor...</span>
+                        </div>
+                        <span class="ms-2">Hesap bilgileri yükleniyor...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strateji Sinyalleri -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Strateji Sinyalleri</h5>
+            </div>
+            <div class="card-body">
+                <div id="signals">
+                    <!-- Sinyaller buraya gelecek -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="col-md-9">
+        <!-- Grafik -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Fiyat Grafiği</h5>
+            </div>
+            <div class="card-body">
+                <div id="chart-container" style="height: 400px;">
+                    <iframe id="chart-iframe" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+            </div>
+        </div>
+
+        <!-- İşlem Geçmişi -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">İşlem Geçmişi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Sembol</th>
+                                <th>İşlem</th>
+                                <th>Fiyat</th>
+                                <th>Miktar</th>
+                                <th>Toplam</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trade-history">
+                            <tr>
+                                <td colspan="6" class="text-center">İşlem geçmişi yükleniyor...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Sayfa yüklendiğinde çalışacak
+document.addEventListener('DOMContentLoaded', function() {
+    // Varsayılan değerler
+    if (!document.getElementById('symbol').value) {
+        document.getElementById('symbol').value = "BTCUSDT";
+    }
+    
+    if (!document.getElementById('interval').value) {
+        document.getElementById('interval').value = "1h";
+    }
+    
+    // İlk grafik oluşturma
+    updateChart();
+    
+    // İlk veri güncellemesi
+    updateData();
+    
+    // Her 5 saniyede bir güncelle
+    setInterval(updateData, 5000);
+    
+    // Hesap bilgilerini güncelle
+    updateAccountInfo();
+    setInterval(updateAccountInfo, 30000);
+    
+    // Sembol veya interval değiştiğinde güncelle
+    document.getElementById('symbol').addEventListener('change', function() {
+        updateChart();
+        updateData();
+    });
+    
+    document.getElementById('interval').addEventListener('change', function() {
+        updateChart();
+        updateData();
+    });
+});
+
+// Basit iframe grafik güncelleme
+function updateChart() {
+    try {
+        const symbol = document.getElementById('symbol').value || "BTCUSDT";
+        const interval = document.getElementById('interval').value || "1h";
+        
+        // Geçersiz sembol kontrolü
+        let cleanSymbol = symbol;
+        if (cleanSymbol.includes("1000000MOGU") || !cleanSymbol || cleanSymbol === "undefined" || cleanSymbol === "null") {
+            cleanSymbol = "BTCUSDT";
+            document.getElementById('symbol').value = cleanSymbol;
+            console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+        }
+        
+        console.log("Grafik yükleniyor:", cleanSymbol, interval);
+        
+        // TradingView iframe URL
+        const iframe = document.getElementById('chart-iframe');
+        const url = `https://www.tradingview.com/chart/?symbol=BINANCE:${cleanSymbol}&interval=${interval}&theme=dark`;
+        
+        iframe.src = url;
+    } catch (error) {
+        console.error("Grafik oluşturma hatası:", error);
+        document.getElementById('chart-container').innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Grafik yüklenemedi!</strong><br>
+                Lütfen sayfayı yenileyin veya farklı bir sembol seçin.<br>
+                <small>Hata: ${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Sembol değiştirme fonksiyonu
+function changeSymbol(symbol) {
+    if (!symbol || symbol === "undefined" || symbol === "null" || symbol.includes("1000000MOGU")) {
+        symbol = "BTCUSDT";
+        console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+    }
+    
+    document.getElementById('symbol').value = symbol;
+    updateChart();
+    updateData();
+}
+
+// Bot başlatma/durdurma fonksiyonu
+let botRunning = false;
+function toggleBot() {
+    const symbol = document.getElementById('symbol').value;
+    const strategy = document.getElementById('bot-strategy').value;
+    const button = document.getElementById('start-bot-btn');
+    const statusBadge = document.getElementById('bot-status');
+    
+    if (!botRunning) {
+        // Botu başlat
+        fetch('/api/bot/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                strategy: strategy
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = true;
+                button.classList.remove('btn-success');
+                button.classList.add('btn-danger');
+                button.innerHTML = '<i class="bi bi-stop-fill"></i> Botu Durdur';
+                statusBadge.classList.remove('bg-secondary');
+                statusBadge.classList.add('bg-success');
+                statusBadge.textContent = 'Çalışıyor';
+            } else {
+                alert('Bot başlatılamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot başlatılırken bir hata oluştu.');
+        });
+    } else {
+        // Botu durdur
+        fetch('/api/bot/stop', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                botRunning = false;
+                button.classList.remove('btn-danger');
+                button.classList.add('btn-success');
+                button.innerHTML = '<i class="bi bi-play-fill"></i> Botu Başlat';
+                statusBadge.classList.remove('bg-success');
+                statusBadge.classList.add('bg-secondary');
+                statusBadge.textContent = 'Durdu';
+            } else {
+                alert('Bot durdurulamadı: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Bot durdurulurken bir hata oluştu.');
+        });
+    }
+}
+
+// Strateji sinyallerini ve verileri güncelleme
+async function updateData() {
+    try {
+        const symbol = document.getElementById('symbol').value;
+        const interval = document.getElementById('interval').value;
+        
+        // Geçersiz sembol kontrolü
+        if (!symbol || symbol === "undefined" || symbol === "null" || symbol.includes("1000000MOGU")) {
+            document.getElementById('symbol').value = "BTCUSDT";
+            console.warn("Geçersiz sembol, varsayılan BTCUSDT kullanılıyor");
+            return;
+        }
+        
+        console.log("Veriler güncelleniyor:", symbol, interval);
+        
+        // Strateji sinyallerini al
+        try {
+            const response = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    symbol: symbol,
+                    interval: interval
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP hata: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Sinyalleri göster
+            const signalsDiv = document.getElementById('signals');
+            let html = '';
+            
+            if (data.signals && data.signals.length > 0) {
+                html += '<div class="list-group">';
+                
+                data.signals.forEach(signal => {
+                    const badgeClass = signal.signal === 'BUY' ? 'bg-success' : (signal.signal === 'SELL' ? 'bg-danger' : 'bg-warning');
+                    const signalText = signal.signal === 'BUY' ? 'AL' : (signal.signal === 'SELL' ? 'SAT' : 'BEKLE');
+                    
+                    html += `
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${signal.strategy}</strong>
+                                <br><small>${signal.description || ''}</small>
+                            </div>
+                            <span class="badge ${badgeClass}">${signalText}</span>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            } else {
+                html = '<div class="alert alert-info">Sinyal bulunamadı.</div>';
+            }
+            
+            signalsDiv.innerHTML = html;
+            
+        } catch (signalError) {
+            console.error('Sinyal hatası:', signalError);
+            
+            // Hata mesajını göster
+            const signalsDiv = document.getElementById('signals');
+            signalsDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Hata:</strong> Strateji sinyalleri alınırken bir hata oluştu.
+                    <br><small>${signalError.message}</small>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        console.error('Hata:', error);
+    }
+}
+
+// Hesap bilgilerini al ve göster
+async function updateAccountInfo() {
+    try {
+        const response = await fetch('/api/account_info');
+        if (!response.ok) throw new Error('Hesap bilgileri alınamadı');
+        
+        const accountData = await response.json();
+        const accountInfoDiv = document.getElementById('account-info');
+        
+        // Aktif mod (testnet veya live)
+        const isTestnet = accountData.current;
+        const currentMode = isTestnet ? 'testnet' : 'live';
+        
+        // HTML oluştur
+        let html = '';
+        
+        // Başlık ve mod göstergesi
+        html += `<div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Hesap Bilgileri</h5>
+            <span class="badge ${isTestnet ? 'bg-warning' : 'bg-success'}">${isTestnet ? 'Testnet' : 'Live'}</span>
+        </div>`;
+        
+        // Aktif mod için hesap bilgilerini göster
+        const activeAccount = accountData[currentMode];
+        
+        if (activeAccount && activeAccount.available) {
+            // Toplam bakiye
+            const totalBalance = parseFloat(activeAccount.totalBalance || 0).toFixed(2);
+            
+            html += `<div class="alert alert-info">
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong>Toplam Bakiye:</strong>
+                    <span class="h5 mb-0">${totalBalance} USDT</span>
+                </div>
+            </div>`;
+            
+            // Varlıklar tablosu
+            html += `<div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Varlık</th>
+                            <th>Serbest</th>
+                            <th>Kilitli</th>
+                            <th>Toplam</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            
+            // Her varlık için satır ekle
+            Object.entries(activeAccount.assets).forEach(([asset, data]) => {
+                const free = parseFloat(data.free || 0);
+                const locked = parseFloat(data.locked || 0);
+                const total = free + locked;
+                
+                // Sadece sıfırdan büyük bakiyeleri göster
+                if (total > 0) {
+                    html += `<tr>
+                        <td>${asset}</td>
+                        <td>${free.toFixed(4)}</td>
+                        <td>${locked.toFixed(4)}</td>
+                        <td>${total.toFixed(4)}</td>
+                    </tr>`;
+                }
+            });
+            
+            html += `</tbody>
+                </table>
+            </div>`;
+            
+            // Mod değiştirme butonu
+            const otherMode = isTestnet ? 'live' : 'testnet';
+            const otherModeText = isTestnet ? 'Live' : 'Testnet';
+            
+            html += `<div class="d-grid gap-2 mt-3">
+                <button class="btn btn-sm btn-outline-primary" onclick="changeMode('${otherMode}')">
+                    ${otherModeText} Moduna Geç
+                </button>
+            </div>`;
+        } else {
+            html += `<div class="alert alert-warning">
+                Hesap bilgileri alınamadı. Lütfen API anahtarlarınızı kontrol edin.
+            </div>`;
+        }
+        
+        accountInfoDiv.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Hesap bilgileri hatası:', error);
+        document.getElementById('account-info').innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Hata:</strong> Hesap bilgileri alınamadı.
+                <br><small>${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Mod değiştirme fonksiyonu (testnet/live)
+function changeMode(mode) {
+    fetch('/api/change_mode', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            mode: mode
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Hesap bilgilerini güncelle
+            updateAccountInfo();
+        } else {
+            alert('Mod değiştirilemedi: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Hata:', error);
+        alert('Mod değiştirilirken bir hata oluştu.');
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gelişmiş Analiz - Binance Trading Bot</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Trading Bot</a>
+            
+            <div class="d-flex align-items-center">
+                {% if testnet %}
+                <span class="badge bg-warning me-2">TESTNET</span>
+                {% else %}
+                <span class="badge bg-success me-2">GERÇEK</span>
+                {% endif %}
+                
+                <a href="/" class="btn btn-outline-light me-2">Ana Sayfa</a>
+                <a href="/backtest" class="btn btn-outline-light me-2">Backtest</a>
+                <a href="/advanced" class="btn btn-outline-light me-2">Gelişmiş Analiz</a>
+                <a href="/settings" class="btn btn-outline-light">Ayarlar</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>Gelişmiş Analiz</h2>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Analiz Parametreleri</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="analysisForm">
+                            <div class="mb-3">
+                                <label for="symbol" class="form-label">Sembol</label>
+                                <input type="text" class="form-control" id="symbol" value="BTCUSDT">
+                            </div>
+                            <div class="mb-3">
+                                <label for="strategy" class="form-label">Strateji</label>
+                                <select class="form-select" id="strategy">
+                                    <!-- Stratejiler JavaScript ile doldurulacak -->
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Zaman Dilimleri</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1h" id="timeframe1h" checked>
+                                    <label class="form-check-label" for="timeframe1h">1 Saat (1h)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="4h" id="timeframe4h">
+                                    <label class="form-check-label" for="timeframe4h">4 Saat (4h)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1d" id="timeframe1d">
+                                    <label class="form-check-label" for="timeframe1d">1 Gün (1d)</label>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Analiz Et</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Analiz Sonuçları</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="loadingResults" class="text-center d-none">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Yükleniyor...</span>
+                            </div>
+                            <p class="mt-2">Analiz yapılıyor, lütfen bekleyin...</p>
+                        </div>
+                        <div id="resultsContainer" class="d-none">
+                            <div class="alert" id="signalAlert" role="alert">
+                                <h4 class="alert-heading" id="signalTitle">Sinyal</h4>
+                                <p id="signalDescription">Sinyal açıklaması</p>
+                                <hr>
+                                <p class="mb-0">Güven: <span id="confidenceValue">0</span>%</p>
+                                <div class="progress mt-2">
+                                    <div id="confidenceBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-4">
+                                <div class="col-md-6">
+                                    <h5>Trend Analizi</h5>
+                                    <table class="table table-sm">
+                                        <tbody id="trendMetrics">
+                                            <!-- Trend metrikleri JavaScript ile doldurulacak -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5>İndikatör Değerleri</h5>
+                                    <table class="table table-sm">
+                                        <tbody id="indicatorMetrics">
+                                            <!-- İndikatör metrikleri JavaScript ile doldurulacak -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-4">
+                                <div class="col-12">
+                                    <h5>Giriş/Çıkış Seviyeleri</h5>
+                                    <table class="table table-sm">
+                                        <tbody id="levelMetrics">
+                                            <!-- Seviye metrikleri JavaScript ile doldurulacak -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div id="multiTimeframeResults" class="mt-4 d-none">
+                                <h5>Çoklu Zaman Dilimi Sonuçları</h5>
+                                <div class="row" id="timeframeResults">
+                                    <!-- Zaman dilimi sonuçları JavaScript ile doldurulacak -->
+                                </div>
+                            </div>
+                        </div>
+                        <div id="errorContainer" class="alert alert-danger d-none">
+                            <h5>Hata</h5>
+                            <p id="errorMessage"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Stratejileri yükle
+            loadStrategies();
+            
+            // Form submit olayını dinle
+            document.getElementById('analysisForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                runAnalysis();
+            });
+        });
+        
+        // Stratejileri API'den yükle
+        function loadStrategies() {
+            fetch('/api/strategies')
+                .then(response => response.json())
+                .then(data => {
+                    const strategySelect = document.getElementById('strategy');
+                    strategySelect.innerHTML = '';
+                    
+                    data.forEach(strategy => {
+                        const option = document.createElement('option');
+                        option.value = strategy;
+                        option.textContent = strategy;
+                        
+                        // Gelişmiş stratejileri varsayılan olarak seç
+                        if (strategy === 'Advanced' || strategy === 'Multi_Timeframe') {
+                            option.selected = true;
+                        }
+                        
+                        strategySelect.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error('Stratejiler yüklenirken hata:', error);
+                });
+        }
+        
+        // Analiz yap
+        function runAnalysis() {
+            // UI'ı hazırla
+            document.getElementById('loadingResults').classList.remove('d-none');
+            document.getElementById('resultsContainer').classList.add('d-none');
+            document.getElementById('errorContainer').classList.add('d-none');
+            
+            // Form değerlerini al
+            const symbol = document.getElementById('symbol').value;
+            const strategy = document.getElementById('strategy').value;
+            
+            // Seçili zaman dilimlerini al
+            const timeframes = [];
+            if (document.getElementById('timeframe1h').checked) timeframes.push('1h');
+            if (document.getElementById('timeframe4h').checked) timeframes.push('4h');
+            if (document.getElementById('timeframe1d').checked) timeframes.push('1d');
+            
+            // En az bir zaman dilimi seçili olmalı
+            if (timeframes.length === 0) {
+                timeframes.push('1h');
+                document.getElementById('timeframe1h').checked = true;
+            }
+            
+            // API isteği gönder
+            fetch('/api/advanced_analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    symbol: symbol,
+                    strategy: strategy,
+                    timeframes: timeframes
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                displayResults(data);
+            })
+            .catch(error => {
+                showError('API isteği sırasında hata oluştu: ' + error.message);
+            });
+        }
+        
+        // Hata göster
+        function showError(message) {
+            document.getElementById('loadingResults').classList.add('d-none');
+            document.getElementById('resultsContainer').classList.add('d-none');
+            document.getElementById('errorContainer').classList.remove('d-none');
+            document.getElementById('errorMessage').textContent = message;
+        }
+        
+        // Sonuçları göster
+        function displayResults(data) {
+            document.getElementById('loadingResults').classList.add('d-none');
+            document.getElementById('resultsContainer').classList.remove('d-none');
+            
+            // Sinyal bilgilerini göster
+            const signalAlert = document.getElementById('signalAlert');
+            const signalTitle = document.getElementById('signalTitle');
+            const signalDescription = document.getElementById('signalDescription');
+            const confidenceValue = document.getElementById('confidenceValue');
+            const confidenceBar = document.getElementById('confidenceBar');
+            
+            // Sinyal tipine göre renk ve açıklama belirle
+            let alertClass = 'alert-secondary';
+            let signalText = 'BEKLEMEDEYİZ';
+            let description = 'Şu anda alım veya satım sinyali yok. Piyasayı izlemeye devam edin.';
+            
+            if (data.signal === 'BUY') {
+                alertClass = 'alert-success';
+                signalText = 'ALIM SİNYALİ';
+                description = `${data.symbol} için ALIM sinyali tespit edildi. Trend ve indikatörler yükseliş yönünde.`;
+            } else if (data.signal === 'SELL') {
+                alertClass = 'alert-danger';
+                signalText = 'SATIM SİNYALİ';
+                description = `${data.symbol} için SATIM sinyali tespit edildi. Trend ve indikatörler düşüş yönünde.`;
+            }
+            
+            // UI'ı güncelle
+            signalAlert.className = 'alert ' + alertClass;
+            signalTitle.textContent = signalText;
+            signalDescription.textContent = description;
+            confidenceValue.textContent = Math.round(data.confidence);
+            confidenceBar.style.width = `${data.confidence}%`;
+            confidenceBar.setAttribute('aria-valuenow', data.confidence);
+            
+            // Trend metriklerini göster
+            const trendMetrics = document.getElementById('trendMetrics');
+            trendMetrics.innerHTML = '';
+            
+            const trendItems = [
+                { key: 'trend', label: 'Trend Yönü' },
+                { key: 'trend_score', label: 'Trend Skoru' },
+                { key: 'ema50', label: 'EMA 50' },
+                { key: 'ema200', label: 'EMA 200' },
+                { key: 'supertrend_direction', label: 'Supertrend Yönü', formatter: (value) => value === 1 ? 'Yukarı' : (value === -1 ? 'Aşağı' : 'Nötr') }
+            ];
+            
+            addMetricsToTable(trendMetrics, trendItems, data.metrics);
+            
+            // İndikatör metriklerini göster
+            const indicatorMetrics = document.getElementById('indicatorMetrics');
+            indicatorMetrics.innerHTML = '';
+            
+            const indicatorItems = [
+                { key: 'rsi', label: 'RSI' },
+                { key: 'stoch_rsi_k', label: 'Stochastic RSI K' },
+                { key: 'stoch_rsi_d', label: 'Stochastic RSI D' },
+                { key: 'macd', label: 'MACD' },
+                { key: 'macd_signal', label: 'MACD Signal' },
+                { key: 'macd_hist', label: 'MACD Histogram' },
+                { key: 'atr', label: 'ATR' }
+            ];
+            
+            addMetricsToTable(indicatorMetrics, indicatorItems, data.metrics);
+            
+            // Seviye metriklerini göster
+            const levelMetrics = document.getElementById('levelMetrics');
+            levelMetrics.innerHTML = '';
+            
+            const levelItems = [
+                { key: 'price', label: 'Mevcut Fiyat' },
+                { key: 'stop_loss', label: 'Stop Loss', formatter: formatPrice },
+                { key: 'take_profit_1', label: 'Take Profit 1 (%3)', formatter: formatPrice },
+                { key: 'take_profit_2', label: 'Take Profit 2 (%4)', formatter: formatPrice },
+                { key: 'take_profit_3', label: 'Take Profit 3 (%5)', formatter: formatPrice },
+                { key: 'risk_reward_ratio', label: 'Risk/Ödül Oranı', formatter: (value) => value.toFixed(2) }
+            ];
+            
+            addMetricsToTable(levelMetrics, levelItems, data.metrics);
+            
+            // Çoklu zaman dilimi sonuçlarını göster
+            const multiTimeframeResults = document.getElementById('multiTimeframeResults');
+            const timeframeResults = document.getElementById('timeframeResults');
+            
+            if (data.strategy === 'Multi_Timeframe' && data.timeframes.length > 1) {
+                multiTimeframeResults.classList.remove('d-none');
+                timeframeResults.innerHTML = '';
+                
+                // Her zaman dilimi için kart oluştur
+                data.timeframes.forEach(timeframe => {
+                    if (data.metrics.individual_signals && data.metrics.individual_signals[timeframe]) {
+                        const signal = data.metrics.individual_signals[timeframe];
+                        const confidence = data.metrics.individual_confidences[timeframe];
+                        
+                        let cardClass = 'bg-secondary text-white';
+                        if (signal === 'BUY') cardClass = 'bg-success text-white';
+                        if (signal === 'SELL') cardClass = 'bg-danger text-white';
+                        
+                        const timeframeCard = document.createElement('div');
+                        timeframeCard.className = 'col-md-4 mb-3';
+                        timeframeCard.innerHTML = `
+                            <div class="card ${cardClass}">
+                                <div class="card-body">
+                                    <h5 class="card-title">${timeframe}</h5>
+                                    <p class="card-text">Sinyal: ${signal}</p>
+                                    <p class="card-text">Güven: ${Math.round(confidence)}%</p>
+                                </div>
+                            </div>
+                        `;
+                        
+                        timeframeResults.appendChild(timeframeCard);
+                    }
+                });
+            } else {
+                multiTimeframeResults.classList.add('d-none');
+            }
+        }
+        
+        // Metrikleri tabloya ekle
+        function addMetricsToTable(tableBody, items, metrics) {
+            items.forEach(item => {
+                if (metrics[item.key] !== undefined) {
+                    const row = document.createElement('tr');
+                    
+                    const labelCell = document.createElement('td');
+                    labelCell.textContent = item.label;
+                    
+                    const valueCell = document.createElement('td');
+                    if (item.formatter) {
+                        valueCell.textContent = item.formatter(metrics[item.key]);
+                    } else {
+                        valueCell.textContent = metrics[item.key];
+                    }
+                    
+                    row.appendChild(labelCell);
+                    row.appendChild(valueCell);
+                    tableBody.appendChild(row);
+                }
+            });
+        }
+        
+        // Fiyat formatla
+        function formatPrice(price) {
+            if (!price) return '-';
+            return price.toFixed(2);
+        }
+    </script>
+</body>
+</html>

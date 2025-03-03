@@ -1,0 +1,1271 @@
+from binance_client import BinanceClient
+from strategies import StrategyManager
+from backtest import Backtester
+import pandas as pd
+import json
+import os
+from dotenv import load_dotenv
+import logging
+from datetime import datetime
+import threading
+import time
+import random  
+from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for, flash
+import numpy as np
+
+# .env dosyasını yükle
+load_dotenv()
+
+# Loglama ayarları
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Flask uygulamasını oluştur
+app = Flask(__name__)
+app.secret_key = os.getenv('SECRET_KEY', 'binance-flask-bot-secret')
+
+# Binance client oluşturmak için yardımcı fonksiyon
+def get_binance_client(testnet=None):
+    """Binance client oluştur"""
+    try:
+        if testnet is None:
+            # Eğer testnet parametresi verilmemişse, çevre değişkeninden al
+            testnet = os.getenv('TESTNET', 'false').lower() == 'true'
+            
+        # API anahtarlarını belirle
+        if testnet:
+            api_key = os.getenv('BINANCE_TEST_API_KEY', '')
+            api_secret = os.getenv('BINANCE_TEST_API_SECRET', '')
+        else:
+            api_key = os.getenv('BINANCE_LIVE_API_KEY', '')
+            api_secret = os.getenv('BINANCE_LIVE_API_SECRET', '')
+            
+        # API anahtarları boşsa None döndür
+        if not api_key or not api_secret:
+            logger.warning(f"{'Testnet' if testnet else 'Live'} API anahtarları bulunamadı")
+            return None
+            
+        # Binance client oluştur
+        client = BinanceClient(api_key, api_secret, testnet=testnet)
+        return client
+        
+    except Exception as e:
+        logger.error(f"Binance client oluşturulurken hata: {str(e)}")
+        return None
+
+# Binance client'ı başlat
+try:
+    live_api_key = os.getenv('BINANCE_LIVE_API_KEY')
+    live_api_secret = os.getenv('BINANCE_LIVE_API_SECRET')
+    test_api_key = os.getenv('BINANCE_TEST_API_KEY')
+    test_api_secret = os.getenv('BINANCE_TEST_API_SECRET')
+    testnet = os.getenv('TESTNET', 'false').lower() == 'true'
+    
+    logger.info(f"Binance client başlatılıyor... Testnet: {testnet}")
+    binance_client = get_binance_client(testnet=testnet)
+    logger.info("Binance client başarıyla başlatıldı")
+except Exception as e:
+    logger.error(f"Binance client başlatılamadı: {str(e)}")
+    binance_client = None
+
+# Strateji yöneticisini başlat
+strategy_manager = StrategyManager()
+
+# Backtester'ı başlat
+backtester = Backtester(strategy_manager)
+
+# Risk Manager'ı import et ve başlat
+try:
+    from risk_manager import RiskManager
+    logger.info("Risk Manager modülü import edildi")
+    
+    # Risk Manager nesnesini oluştur
+    risk_manager = RiskManager()
+    logger.info("Risk Manager başlatıldı")
+except Exception as e:
+    logger.error(f"Risk Manager başlatılamadı: {str(e)}")
+    import traceback
+    logger.error(traceback.format_exc())
+    risk_manager = None
+
+# Bot durumu
+bot_status = {
+    "running": False,
+    "symbol": "BTCUSDT",
+    "interval": "1h",
+    "strategy": "MACD_EMA",
+    "last_check": None,
+    "last_signal": None,
+    "active_position": None,
+    "stop_event": threading.Event()
+}
+
+# Zaman aralıkları
+TIMEFRAMES = {
+    "1m": "1 Dakika",
+    "3m": "3 Dakika",
+    "5m": "5 Dakika",
+    "15m": "15 Dakika",
+    "30m": "30 Dakika",
+    "1h": "1 Saat",
+    "2h": "2 Saat",
+    "4h": "4 Saat",
+    "6h": "6 Saat",
+    "8h": "8 Saat",
+    "12h": "12 Saat",
+    "1d": "1 Gün",
+    "3d": "3 Gün",
+    "1w": "1 Hafta",
+    "1M": "1 Ay"
+}
+
+# Her istekte şablonlara tarih bilgisi gönder
+@app.context_processor
+def inject_now():
+    return {'now': datetime.now()}
+
+@app.route('/')
+def index():
+    """Ana sayfa"""
+    try:
+        logger.info("Ana sayfa yükleniyor...")
+        # Vadeli işlem sembollerini al
+        symbols = []
+        if binance_client:
+            symbols = binance_client.get_futures_symbols()
+            symbols.sort()
+        
+        # Favori sembolleri ekle
+        favorite_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT"]
+        
+        # Testnet durumunu al
+        testnet = False
+        if binance_client:
+            testnet = binance_client.testnet
+        
+        return render_template('index.html', 
+                              symbols=symbols,
+                              favorite_symbols=favorite_symbols,
+                              intervals=TIMEFRAMES.items(),
+                              testnet=testnet)
+    except Exception as e:
+        logger.error(f"Ana sayfa yüklenirken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/api/klines', methods=['GET'])
+def get_klines():
+    """Mum verilerini al"""
+    try:
+        symbol = request.args.get('symbol', 'BTCUSDT')
+        interval = request.args.get('interval', '1h')
+        limit = request.args.get('limit', '100')
+        
+        # Parametreleri kontrol et ve logla
+        logger.info(f"Mum verileri alınıyor: symbol={symbol}, interval={interval}, limit={limit}")
+        
+        # Sembol kontrolü
+        if not symbol or symbol == "undefined" or symbol == "null":
+            symbol = "BTCUSDT"  # Varsayılan sembol
+            logger.warning(f"Geçersiz sembol değeri, varsayılan kullanılıyor: {symbol}")
+            
+        # Interval kontrolü
+        if not interval or interval == "undefined" or interval == "null":
+            interval = "1h"  # Varsayılan interval
+            logger.warning(f"Geçersiz interval değeri, varsayılan kullanılıyor: {interval}")
+            
+        # Limit kontrolü
+        try:
+            limit = int(limit)
+            if limit <= 0 or limit > 1000:
+                limit = 100
+                logger.warning(f"Geçersiz limit değeri, varsayılan kullanılıyor: {limit}")
+        except (ValueError, TypeError):
+            limit = 100
+            logger.warning(f"Geçersiz limit değeri, varsayılan kullanılıyor: {limit}")
+        
+        # Mum verilerini al
+        df = binance_client.get_historical_klines(symbol, interval, limit=limit)
+        
+        if df.empty:
+            logger.error(f"Veri alınamadı: symbol={symbol}, interval={interval}, limit={limit}")
+            return jsonify({'error': 'Veri alınamadı. Lütfen farklı bir sembol veya interval seçin.'}), 400
+            
+        # DataFrame'i JSON'a dönüştür
+        try:
+            # Timestamp'i string'e çevir
+            df = df.reset_index()
+            df['timestamp'] = df['timestamp'].astype(str)
+            
+            # JSON'a dönüştür
+            result = df.to_dict(orient='records')
+            return jsonify(result)
+        except Exception as json_error:
+            logger.error(f"JSON dönüşümünde hata: {str(json_error)}")
+            return jsonify({'error': f'Veri dönüşümünde hata: {str(json_error)}'}), 500
+            
+    except Exception as e:
+        logger.error(f"Mum verileri alınırken hata: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    """Strateji analizi yap"""
+    try:
+        # Form verilerini al
+        data = request.get_json()
+        if not data:
+            logger.error("Analiz için veri alınamadı")
+            return jsonify({'error': 'Veri alınamadı'}), 400
+            
+        symbol = data.get('symbol')
+        interval = data.get('interval')
+        
+        logger.info(f"Analiz yapılıyor: symbol={symbol}, interval={interval}")
+        
+        # Parametreleri kontrol et
+        if not symbol or symbol == "undefined" or symbol == "null":
+            symbol = "BTCUSDT"  # Varsayılan sembol
+            logger.warning(f"Geçersiz sembol değeri, varsayılan kullanılıyor: {symbol}")
+            
+        # Interval kontrolü
+        if not interval or interval == "undefined" or interval == "null":
+            interval = "1h"  # Varsayılan interval
+            logger.warning(f"Geçersiz interval değeri, varsayılan kullanılıyor: {interval}")
+        
+        # Geçmiş verileri al
+        try:
+            logger.info(f"Veri alınıyor: {symbol} {interval}")
+            df = binance_client.get_historical_klines(symbol, interval, limit=100)
+            if df.empty:
+                logger.error(f"Veri alınamadı: symbol={symbol}, interval={interval}")
+                return jsonify({'error': 'Veri alınamadı'}), 400
+            logger.info(f"Veri başarıyla alındı: {len(df)} adet veri")
+        except Exception as data_error:
+            logger.error(f"Veri alınırken hata: {str(data_error)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Veri alınamadı: {str(data_error)}'}), 500
+            
+        # Tüm stratejileri analiz et
+        try:
+            logger.info("Stratejiler analiz ediliyor...")
+            analysis_results = strategy_manager.analyze_all(df.copy())  # DataFrame'in kopyasını kullan
+            
+            if not analysis_results:
+                logger.error(f"Analiz sonuçları alınamadı: symbol={symbol}, interval={interval}")
+                return jsonify({'error': 'Analiz sonuçları alınamadı'}), 400
+                
+            logger.info(f"Analiz tamamlandı: {len(analysis_results)} strateji sonucu")
+            
+            # JSON serileştirme hatalarını önlemek için sonuçları temizle
+            cleaned_results = []
+            for result in analysis_results:
+                cleaned_result = {}
+                # Tuple kontrolü ekle
+                if isinstance(result, tuple) and len(result) >= 4:
+                    # Tuple'ı açıp dictionary'ye dönüştür
+                    name, signal, confidence, metrics = result
+                    cleaned_result = {
+                        'strategy': name,
+                        'signal': 1 if signal == "BUY" else -1 if signal == "SELL" else 0,
+                        'confidence': confidence / 100.0 if confidence > 1 else confidence
+                    }
+                    # Metrikleri ekle (eğer dict ise)
+                    if isinstance(metrics, dict):
+                        for key, value in metrics.items():
+                            # NumPy değerlerini Python değerlerine çevir
+                            if isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
+                                cleaned_result[key] = value.item()
+                            # Bool değerleri string'e çevir
+                            elif isinstance(value, bool):
+                                cleaned_result[key] = str(value)
+                            # Diğer değerleri olduğu gibi kullan
+                            else:
+                                cleaned_result[key] = value
+                else:
+                    # Eski kod, dict nesneleri için
+                    for key, value in result.items():
+                        # NumPy değerlerini Python değerlerine çevir
+                        if isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
+                            cleaned_result[key] = value.item()
+                        # Bool değerleri string'e çevir
+                        elif isinstance(value, bool):
+                            cleaned_result[key] = str(value)
+                        # Diğer değerleri olduğu gibi kullan
+                        else:
+                            cleaned_result[key] = value
+                cleaned_results.append(cleaned_result)
+            
+            return jsonify(cleaned_results)
+        except Exception as analysis_error:
+            logger.error(f"Stratejiler analiz edilirken hata: {str(analysis_error)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Analiz hatası: {str(analysis_error)}'}), 500
+        
+    except Exception as e:
+        logger.error(f"Analiz hatası: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/backtest/run', methods=['POST'])
+def run_backtest():
+    """Backtest çalıştır"""
+    try:
+        # Form verilerini al
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        strategy = data.get('strategy', 'MACD_EMA')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        initial_balance = data.get('initial_balance', 1000)
+        
+        logger.info(f"Backtest başlatılıyor: {symbol} {interval} {strategy} {start_date} - {end_date}")
+        
+        # Parametreleri kontrol et
+        if not symbol or symbol == "undefined" or symbol == "null":
+            symbol = "BTCUSDT"  # Varsayılan sembol
+            logger.warning(f"Geçersiz sembol değeri, varsayılan kullanılıyor: {symbol}")
+            
+        # Interval kontrolü
+        if not interval or interval == "undefined" or interval == "null":
+            interval = "1h"  # Varsayılan interval
+            logger.warning(f"Geçersiz interval değeri, varsayılan kullanılıyor: {interval}")
+        
+        # Geçmiş verileri al
+        if not start_date or not end_date:
+            # Tarih belirtilmemişse son 500 mum verisini al
+            logger.info(f"Tarih belirtilmemiş, son 500 mum verisi alınıyor: {symbol} {interval}")
+            df = binance_client.get_historical_klines(symbol, interval, limit=500)
+        else:
+            # Belirtilen tarih aralığında veri al
+            try:
+                from datetime import datetime
+                start_timestamp = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+                end_timestamp = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
+                
+                logger.info(f"Belirtilen tarih aralığında veri alınıyor: {symbol} {interval} {start_date} - {end_date}")
+                df = binance_client.get_historical_klines(
+                    symbol, 
+                    interval, 
+                    start_time=start_timestamp,
+                    end_time=end_timestamp
+                )
+            except Exception as date_error:
+                logger.error(f"Tarih dönüşümünde hata: {str(date_error)}")
+                return jsonify({'error': f'Tarih formatı hatalı: {str(date_error)}'}), 400
+            
+        if df.empty:
+            logger.error(f"Backtest için veri alınamadı: {symbol} {interval} {start_date} - {end_date}")
+            return jsonify({'error': 'Veri alınamadı. Lütfen farklı bir tarih aralığı veya sembol seçin.'}), 400
+            
+        # Stratejiyi çalıştır
+        try:
+            results = backtester.run(
+                df=df.copy(),
+                strategy_name=strategy,
+                symbol=symbol,
+                interval=interval
+            )
+            
+            if not results:
+                logger.error(f"Backtest sonuçları alınamadı: {strategy}")
+                return jsonify({'error': 'Backtest sonuçları alınamadı. Strateji çalıştırılamadı.'}), 400
+        except Exception as strategy_error:
+            logger.error(f"Strateji çalıştırılırken hata: {str(strategy_error)}")
+            return jsonify({'error': f'Strateji çalıştırılamadı: {str(strategy_error)}'}), 500
+            
+        # Sonuçları düzenle
+        trades = []
+        for trade in results['trades']:
+            trades.append({
+                'timestamp': trade['timestamp'],
+                'side': trade['type'],
+                'price': float(trade['price']),
+                'quantity': 1.0,  # Basitleştirme için sabit miktar
+                'pnl': float(trade.get('profit', 0))
+            })
+            
+        # Portföy değeri eğrisi oluştur
+        equity_curve = []
+        balance = initial_balance
+        for i, trade in enumerate(trades):
+            balance += trade['pnl']
+            equity_curve.append({
+                'timestamp': trade['timestamp'],
+                'equity': balance
+            })
+        
+        # Metrikleri hesapla
+        total_pnl = sum(trade['pnl'] for trade in trades)
+        win_trades = sum(1 for trade in trades if trade['pnl'] > 0)
+        total_trades = len(trades)
+        win_rate = win_trades / total_trades if total_trades > 0 else 0
+        
+        # Maksimum düşüş hesapla
+        max_equity = initial_balance
+        max_drawdown = 0
+        
+        for point in equity_curve:
+            equity = point['equity']
+            max_equity = max(max_equity, equity)
+            drawdown = (max_equity - equity) / max_equity
+            max_drawdown = max(max_drawdown, drawdown)
+        
+        logger.info(f"Backtest tamamlandı: {symbol} {interval} {strategy}, Toplam İşlem: {total_trades}, Kar/Zarar: {total_pnl}")
+        
+        return jsonify({
+            'trades': trades,
+            'equity_curve': equity_curve,
+            'total_pnl': total_pnl,
+            'win_rate': win_rate,
+            'total_trades': total_trades,
+            'max_drawdown': max_drawdown
+        })
+        
+    except Exception as e:
+        logger.error(f"Backtest hatası: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/backtest')
+def backtest_page():
+    """Backtest sayfası"""
+    try:
+        logger.info("Backtest sayfası yükleniyor...")
+        
+        # Vadeli işlem sembollerini al
+        symbols = []
+        if binance_client:
+            try:
+                symbols = binance_client.get_futures_symbols()
+                symbols.sort()
+            except Exception as e:
+                logger.warning(f"Semboller alınamadı: {str(e)}")
+                # Varsayılan semboller
+                symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "XRPUSDT", "LTCUSDT", "SOLUSDT"]
+        
+        # Favori sembolleri ekle
+        favorite_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT"]
+        
+        # Testnet durumunu al
+        testnet = False
+        if binance_client:
+            testnet = binance_client.testnet
+        
+        logger.info("Backtest sayfası render ediliyor...")
+        try:
+            return render_template('backtest.html', 
+                                  symbols=symbols,
+                                  favorite_symbols=favorite_symbols,
+                                  intervals=TIMEFRAMES.items(),
+                                  testnet=testnet)
+        except Exception as template_error:
+            logger.error(f"Backtest şablonu render edilirken hata: {str(template_error)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return f"Şablon hatası: {str(template_error)}", 500
+    except Exception as e:
+        logger.error(f"Backtest sayfası yüklenirken hata: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        flash(f"Hata: {str(e)}", "danger")
+        return render_template('error.html', error=str(e))
+
+@app.route('/api/account', methods=['GET'])
+def get_account():
+    """Hesap bilgilerini al"""
+    try:
+        if not binance_client:
+            return jsonify({'error': 'Binance client başlatılamadı'}), 500
+            
+        account_info = binance_client.get_account_info()
+        return jsonify(account_info)
+    except Exception as e:
+        logger.error(f"Hesap bilgileri alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/account_info', methods=['GET'])
+def account_info():
+    """Hesap bilgilerini al"""
+    try:
+        # Hem testnet hem de canlı hesap bilgilerini al
+        account_data = {}
+        
+        # Testnet hesap bilgileri
+        try:
+            testnet_client = get_binance_client(testnet=True)
+            if testnet_client:
+                testnet_info = testnet_client.get_account()
+                testnet_balances = [balance for balance in testnet_info.get('balances', []) 
+                                  if float(balance.get('free', 0)) > 0 or float(balance.get('locked', 0)) > 0]
+                account_data['testnet'] = {
+                    'available': True,
+                    'balances': testnet_balances,
+                    'canTrade': True
+                }
+            else:
+                account_data['testnet'] = {
+                    'available': False,
+                    'error': 'Testnet API anahtarları ayarlanmamış'
+                }
+        except Exception as testnet_error:
+            logger.error(f"Testnet hesap bilgileri alınırken hata: {str(testnet_error)}")
+            account_data['testnet'] = {
+                'available': False,
+                'error': str(testnet_error)
+            }
+        
+        # Canlı hesap bilgileri
+        try:
+            live_client = get_binance_client(testnet=False)
+            if live_client:
+                live_info = live_client.get_account()
+                live_balances = [balance for balance in live_info.get('balances', []) 
+                               if float(balance.get('free', 0)) > 0 or float(balance.get('locked', 0)) > 0]
+                account_data['live'] = {
+                    'available': True,
+                    'balances': live_balances,
+                    'canTrade': True
+                }
+            else:
+                account_data['live'] = {
+                    'available': False,
+                    'error': 'Canlı API anahtarları ayarlanmamış'
+                }
+        except Exception as live_error:
+            logger.error(f"Canlı hesap bilgileri alınırken hata: {str(live_error)}")
+            account_data['live'] = {
+                'available': False,
+                'error': str(live_error)
+            }
+        
+        # Şu anki aktif mod
+        account_data['current'] = os.getenv('TESTNET', 'false').lower() == 'true'
+        
+        return jsonify(account_data)
+        
+    except Exception as e:
+        logger.error(f"Hesap bilgileri alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/place_order', methods=['POST'])
+def place_order():
+    """Emir ver"""
+    try:
+        data = request.json
+        symbol = data.get('symbol')
+        side = data.get('side')
+        order_type = data.get('order_type')
+        quantity = float(data.get('quantity'))
+        price = float(data.get('price')) if data.get('price') else None
+        stop_price = float(data.get('stop_price')) if data.get('stop_price') else None
+        leverage = int(data.get('leverage', 1))
+        
+        if not binance_client:
+            return jsonify({"error": "Binance client başlatılamadı."}), 500
+        
+        # Emri ver
+        order = binance_client.place_order(
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            price=price,
+            stop_price=stop_price,
+            leverage=leverage
+        )
+        
+        return jsonify(order)
+    except Exception as e:
+        logger.error(f"Emir verilirken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/api/order_history', methods=['GET'])
+def get_order_history():
+    """Emir geçmişini al"""
+    try:
+        symbol = request.args.get('symbol')
+        limit = int(request.args.get('limit', 50))
+        
+        if not binance_client:
+            return jsonify({"error": "Binance client başlatılamadı."}), 500
+        
+        # Emir geçmişini al
+        orders = binance_client.get_order_history(symbol=symbol, limit=limit)
+        
+        return jsonify(orders)
+    except Exception as e:
+        logger.error(f"Emir geçmişi alınırken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    """Ayarlar sayfası"""
+    try:
+        logger.info("Ayarlar sayfası yükleniyor...")
+        
+        if request.method == 'POST':
+            # Ayarları kaydet
+            live_api_key = request.form.get('live_api_key')
+            live_api_secret = request.form.get('live_api_secret')
+            test_api_key = request.form.get('test_api_key')
+            test_api_secret = request.form.get('test_api_secret')
+            testnet = request.form.get('testnet') == 'on'
+            
+            # .env dosyasına kaydet
+            with open('.env', 'w') as f:
+                f.write(f'BINANCE_LIVE_API_KEY={live_api_key}\n')
+                f.write(f'BINANCE_LIVE_API_SECRET={live_api_secret}\n')
+                f.write(f'BINANCE_TEST_API_KEY={test_api_key}\n')
+                f.write(f'BINANCE_TEST_API_SECRET={test_api_secret}\n')
+                f.write(f'TESTNET={"true" if testnet else "false"}\n')
+            
+            # Binance client'ı yeniden başlat
+            try:
+                global binance_client
+                if testnet:
+                    binance_client = get_binance_client(testnet)
+                else:
+                    binance_client = get_binance_client(testnet=False)
+                flash('Ayarlar başarıyla kaydedildi', 'success')
+            except Exception as e:
+                flash(f'Binance client başlatılamadı: {str(e)}', 'error')
+            
+            return redirect(url_for('settings'))
+        
+        # Mevcut ayarları al
+        live_api_key = os.getenv('BINANCE_LIVE_API_KEY', '')
+        live_api_secret = os.getenv('BINANCE_LIVE_API_SECRET', '')
+        test_api_key = os.getenv('BINANCE_TEST_API_KEY', '')
+        test_api_secret = os.getenv('BINANCE_TEST_API_SECRET', '')
+        testnet = os.getenv('TESTNET', 'false').lower() == 'true'
+        
+        logger.info("Ayarlar sayfası render ediliyor...")
+        try:
+            return render_template('settings.html',
+                                live_api_key=live_api_key,
+                                live_api_secret=live_api_secret,
+                                test_api_key=test_api_key,
+                                test_api_secret=test_api_secret,
+                                testnet=testnet)
+        except Exception as template_error:
+            logger.error(f"Şablon render edilirken hata: {str(template_error)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return f"Şablon hatası: {str(template_error)}", 500
+    except Exception as e:
+        logger.error(f"Ayarlar sayfası yüklenirken hata: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return str(e), 500
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def api_settings():
+    """API ayarlarını al veya güncelle"""
+    try:
+        if request.method == 'GET':
+            # Ayarları .env dosyasından veya veritabanından al
+            live_api_key = os.environ.get('BINANCE_LIVE_API_KEY', '')
+            live_api_secret = os.environ.get('BINANCE_LIVE_API_SECRET', '')
+            test_api_key = os.environ.get('BINANCE_TEST_API_KEY', '')
+            test_api_secret = os.environ.get('BINANCE_TEST_API_SECRET', '')
+            testnet = os.environ.get('TESTNET', 'true').lower() == 'true'
+            
+            return jsonify({
+                'live_api_key': live_api_key,
+                'live_api_secret': live_api_secret,
+                'test_api_key': test_api_key,
+                'test_api_secret': test_api_secret,
+                'testnet': testnet
+            })
+        elif request.method == 'POST':
+            data = request.json
+            live_api_key = data.get('live_api_key', '')
+            live_api_secret = data.get('live_api_secret', '')
+            test_api_key = data.get('test_api_key', '')
+            test_api_secret = data.get('test_api_secret', '')
+            testnet = data.get('testnet', True)
+            
+            # Ayarları .env dosyasına kaydet
+            with open('.env', 'w') as f:
+                f.write(f'BINANCE_LIVE_API_KEY={live_api_key}\n')
+                f.write(f'BINANCE_LIVE_API_SECRET={live_api_secret}\n')
+                f.write(f'BINANCE_TEST_API_KEY={test_api_key}\n')
+                f.write(f'BINANCE_TEST_API_SECRET={test_api_secret}\n')
+                f.write(f'TESTNET={"true" if testnet else "false"}\n')
+            
+            # Çevre değişkenlerini güncelle
+            os.environ['BINANCE_LIVE_API_KEY'] = live_api_key
+            os.environ['BINANCE_LIVE_API_SECRET'] = live_api_secret
+            os.environ['BINANCE_TEST_API_KEY'] = test_api_key
+            os.environ['BINANCE_TEST_API_SECRET'] = test_api_secret
+            os.environ['TESTNET'] = 'true' if testnet else 'false'
+        
+            # Aktif API anahtarlarını belirle
+            if testnet:
+                active_api_key = test_api_key
+                active_api_secret = test_api_secret
+            else:
+                active_api_key = live_api_key
+                active_api_secret = live_api_secret
+            
+            # Binance client'ı yeniden başlat
+            global binance_client
+            try:
+                binance_client = get_binance_client(testnet=testnet)
+                logger.info(f"Binance client başarıyla güncellendi. Testnet: {testnet}")
+            except Exception as e:
+                logger.error(f"Binance client güncellenirken hata: {str(e)}")
+            
+            return jsonify({'success': True, 'message': 'API ayarları güncellendi'})
+    except Exception as e:
+        logger.error(f"API ayarları işlenirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get_testnet', methods=['GET'])
+def get_testnet():
+    """Testnet durumunu al"""
+    try:
+        if not binance_client:
+            return jsonify({'error': 'Binance client başlatılamadı'}), 500
+            
+        testnet = binance_client.testnet
+        return jsonify({'testnet': testnet})
+    except Exception as e:
+        logger.error(f"Testnet durumu alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Ayarlar API'leri
+@app.route('/api/settings/favorites', methods=['POST'])
+def update_favorites():
+    try:
+        data = request.json
+        symbols = data.get('symbols', [])
+        
+        # Favori sembolleri kaydet
+        with open('favorites.json', 'w') as f:
+            json.dump(symbols, f)
+        
+        return jsonify({'success': True, 'message': 'Favori semboller güncellendi'})
+    except Exception as e:
+        logger.error(f"Favori semboller güncellenirken hata: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/risk', methods=['POST'])
+def update_risk_settings():
+    """Risk yönetimi ayarlarını güncelle"""
+    try:
+        if risk_manager is None:
+            logger.error("Risk Manager başlatılamadı")
+            return jsonify({'error': 'Risk Manager başlatılamadı'}), 500
+            
+        data = request.get_json()
+        success = risk_manager.update_settings(data)
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Risk ayarları başarıyla güncellendi'})
+        else:
+            return jsonify({'success': False, 'message': 'Risk ayarları güncellenirken hata oluştu'}), 400
+    except Exception as e:
+        logger.error(f"Risk ayarları güncellenirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/settings/notifications', methods=['POST'])
+def update_notification_settings():
+    try:
+        data = request.json
+        telegram_token = data.get('telegram_token', '')
+        telegram_chat_id = data.get('telegram_chat_id', '')
+        notify_trades = data.get('notify_trades', False)
+        notify_signals = data.get('notify_signals', False)
+        
+        # Bildirim ayarlarını kaydet
+        with open('notification_settings.json', 'w') as f:
+            json.dump({
+                'telegram_token': telegram_token,
+                'telegram_chat_id': telegram_chat_id,
+                'notify_trades': notify_trades,
+                'notify_signals': notify_signals
+            }, f)
+        
+        return jsonify({'success': True, 'message': 'Bildirim ayarları güncellendi'})
+    except Exception as e:
+        logger.error(f"Bildirim ayarları güncellenirken hata: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/strategies', methods=['GET'])
+def get_strategies():
+    """Mevcut stratejileri listele"""
+    try:
+        strategies = list(strategy_manager.strategies.keys())
+        return jsonify(strategies)
+    except Exception as e:
+        logger.error(f"Stratejiler listelenirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/advanced_analyze', methods=['POST'])
+def advanced_analyze():
+    """Gelişmiş strateji analizi yap"""
+    try:
+        # Form verilerini al
+        data = request.get_json()
+        if not data:
+            logger.error("Gelişmiş analiz için veri alınamadı")
+            return jsonify({'error': 'Veri alınamadı'}), 400
+            
+        symbol = data.get('symbol', 'BTCUSDT')
+        logger.info(f"Gelişmiş analiz yapılıyor: symbol={symbol}")
+        
+        # Zaman dilimleri
+        timeframes = data.get('timeframes', ['1h'])
+        logger.info(f"Seçilen zaman dilimleri: {timeframes}")
+        
+        # Tüm zaman dilimleri için veri al
+        dataframes = {}
+        for interval in timeframes:
+            logger.info(f"{interval} için veri alınıyor...")
+            try:
+                df = binance_client.get_historical_klines(symbol, interval, limit=100)
+                if df.empty:
+                    logger.error(f"{interval} için veri alınamadı")
+                    return jsonify({'error': f'{interval} için veri alınamadı'}), 400
+                dataframes[interval] = df.copy()
+                logger.info(f"{interval} için {len(df)} adet veri alındı")
+            except Exception as interval_error:
+                logger.error(f"{interval} için veri alınırken hata: {str(interval_error)}")
+                return jsonify({'error': f'{interval} için veri alınırken hata: {str(interval_error)}'}), 400
+        
+        # Strateji adını al
+        strategy_name = data.get('strategy', 'Advanced')
+        logger.info(f"Seçilen strateji: {strategy_name}")
+        
+        # Strateji nesnesini al
+        strategy = strategy_manager.get_strategy(strategy_name)
+        
+        if not strategy:
+            logger.error(f"{strategy_name} stratejisi bulunamadı")
+            return jsonify({'error': f'{strategy_name} stratejisi bulunamadı'}), 400
+        
+        logger.info(f"Strateji analizi başlatılıyor: {strategy_name}")
+        
+        # Çoklu zaman dilimi analizi
+        if strategy_name == "Multi_Timeframe" and hasattr(strategy, 'analyze_multi_timeframe'):
+            logger.info("Çoklu zaman dilimi analizi yapılıyor...")
+            try:
+                signal, confidence, metrics = strategy.analyze_multi_timeframe(dataframes)
+                logger.info(f"Çoklu zaman dilimi analizi tamamlandı: {signal}, {confidence}")
+            except Exception as multi_error:
+                logger.error(f"Çoklu zaman dilimi analizi sırasında hata: {str(multi_error)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return jsonify({'error': f'Çoklu zaman dilimi analizi hatası: {str(multi_error)}'}), 500
+        else:
+            # Tek zaman dilimi analizi (varsayılan olarak ilk zaman dilimini kullan)
+            logger.info(f"Tek zaman dilimi analizi yapılıyor: {timeframes[0]}")
+            try:
+                primary_timeframe = timeframes[0]
+                signal, confidence, metrics = strategy.analyze(dataframes[primary_timeframe])
+                logger.info(f"Tek zaman dilimi analizi tamamlandı: {signal}, {confidence}")
+            except Exception as single_error:
+                logger.error(f"Tek zaman dilimi analizi sırasında hata: {str(single_error)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return jsonify({'error': f'Tek zaman dilimi analizi hatası: {str(single_error)}'}), 500
+        
+        # JSON serileştirme hatalarını önlemek için metrikleri düzelt
+        cleaned_metrics = {}
+        for key, value in metrics.items():
+            # Bool değerleri string'e çevir
+            if isinstance(value, bool):
+                cleaned_metrics[key] = str(value)
+            # NumPy değerlerini Python değerlerine çevir
+            elif isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
+                cleaned_metrics[key] = value.item()
+            # Diğer değerleri olduğu gibi kullan
+            else:
+                cleaned_metrics[key] = value
+        
+        # Sonuçları döndür
+        result = {
+            'strategy': strategy_name,
+            'symbol': symbol,
+            'timeframes': timeframes,
+            'signal': signal,
+            'confidence': float(confidence) if isinstance(confidence, (np.int64, np.int32, np.float64, np.float32)) else confidence,
+            'metrics': cleaned_metrics
+        }
+        
+        logger.info(f"Gelişmiş analiz tamamlandı: {signal}, {confidence}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Gelişmiş analiz hatası: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/advanced')
+def advanced_analysis():
+    """Gelişmiş analiz sayfası"""
+    return render_template('advanced_analysis.html')
+
+@app.route('/api/risk/settings', methods=['GET'])
+def get_risk_settings():
+    """Risk yönetimi ayarlarını al"""
+    try:
+        if risk_manager is None:
+            logger.error("Risk Manager başlatılamadı")
+            return jsonify({'error': 'Risk Manager başlatılamadı'}), 500
+            
+        settings = risk_manager.get_settings()
+        if settings:
+            return jsonify(settings)
+        else:
+            return jsonify(risk_manager.default_settings)
+    except Exception as e:
+        logger.error(f"Risk ayarları alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/risk/calculate_position_size', methods=['POST'])
+def calculate_position_size():
+    """Pozisyon büyüklüğünü hesapla"""
+    try:
+        if risk_manager is None:
+            logger.error("Risk Manager başlatılamadı")
+            return jsonify({'error': 'Risk Manager başlatılamadı'}), 500
+            
+        data = request.get_json()
+        account_balance = float(data.get('account_balance', 0))
+        current_price = float(data.get('current_price', 0))
+        symbol = data.get('symbol', 'BTCUSDT')
+        
+        if account_balance <= 0 or current_price <= 0:
+            return jsonify({'error': 'Geçersiz bakiye veya fiyat değeri'}), 400
+            
+        position_size = risk_manager.calculate_position_size(account_balance, current_price, symbol)
+        
+        return jsonify({
+            'position_size': position_size,
+            'position_size_coins': position_size / current_price if current_price > 0 else 0
+        })
+    except Exception as e:
+        logger.error(f"Pozisyon büyüklüğü hesaplanırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/risk/calculate_stop_loss', methods=['POST'])
+def calculate_stop_loss():
+    """Stop loss fiyatını hesapla"""
+    try:
+        if risk_manager is None:
+            logger.error("Risk Manager başlatılamadı")
+            return jsonify({'error': 'Risk Manager başlatılamadı'}), 500
+            
+        data = request.get_json()
+        entry_price = float(data.get('entry_price', 0))
+        position_type = data.get('position_type', 'LONG')
+        
+        if entry_price <= 0:
+            return jsonify({'error': 'Geçersiz giriş fiyatı'}), 400
+            
+        stop_loss = risk_manager.calculate_stop_loss(entry_price, position_type)
+        
+        return jsonify({'stop_loss': stop_loss})
+    except Exception as e:
+        logger.error(f"Stop loss hesaplanırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/risk/calculate_take_profit', methods=['POST'])
+def calculate_take_profit():
+    """Take profit fiyatını hesapla"""
+    try:
+        if risk_manager is None:
+            logger.error("Risk Manager başlatılamadı")
+            return jsonify({'error': 'Risk Manager başlatılamadı'}), 500
+            
+        data = request.get_json()
+        entry_price = float(data.get('entry_price', 0))
+        position_type = data.get('position_type', 'LONG')
+        
+        if entry_price <= 0:
+            return jsonify({'error': 'Geçersiz giriş fiyatı'}), 400
+            
+        take_profit = risk_manager.calculate_take_profit(entry_price, position_type)
+        
+        return jsonify({'take_profit': take_profit})
+    except Exception as e:
+        logger.error(f"Take profit hesaplanırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test_connection', methods=['GET'])
+def test_api_connection():
+    """API bağlantısını test et"""
+    try:
+        logger.info("API bağlantı testi başlatıldı")
+        
+        # Mevcut testnet durumunu al
+        current_testnet = os.environ.get('TESTNET', 'true').lower() == 'true'
+        logger.info(f"Mevcut testnet durumu: {current_testnet}")
+        
+        # API anahtarlarını al
+        live_api_key = os.environ.get('BINANCE_LIVE_API_KEY', '')
+        live_api_secret = os.environ.get('BINANCE_LIVE_API_SECRET', '')
+        test_api_key = os.environ.get('BINANCE_TEST_API_KEY', '')
+        test_api_secret = os.environ.get('BINANCE_TEST_API_SECRET', '')
+        
+        logger.info(f"API anahtarları alındı: Live API Key: {'*****' if live_api_key else 'Boş'}, Test API Key: {'*****' if test_api_key else 'Boş'}")
+        
+        # Sonuçları sakla
+        results = {
+            'live': {'success': False, 'message': 'Test edilmedi'},
+            'test': {'success': False, 'message': 'Test edilmedi'},
+            'current': current_testnet
+        }
+        
+        # Live API anahtarlarını test et
+        if live_api_key and live_api_secret:
+            try:
+                logger.info("Live API anahtarları test ediliyor...")
+                # Doğrudan BinanceClient sınıfını kullan
+                live_client = get_binance_client(testnet=False)
+                logger.info("Live BinanceClient başarıyla oluşturuldu")
+                
+                if live_client.validate_api_keys():
+                    logger.info("Live API anahtarları doğrulandı")
+                    results['live'] = {'success': True, 'message': 'Bağlantı başarılı'}
+                else:
+                    logger.warning("Live API anahtarları doğrulanamadı")
+                    results['live'] = {'success': False, 'message': 'API anahtarları doğrulanamadı'}
+            except Exception as e:
+                logger.error(f"Live API bağlantısı test edilirken hata: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                results['live'] = {'success': False, 'message': f'Hata: {str(e)}'}
+        else:
+            logger.warning("Live API anahtarları girilmemiş")
+            results['live'] = {'success': False, 'message': 'API anahtarları girilmemiş'}
+            
+        # Testnet API anahtarlarını test et
+        if test_api_key and test_api_secret:
+            try:
+                logger.info("Testnet API anahtarları test ediliyor...")
+                # Doğrudan BinanceClient sınıfını kullan
+                test_client = get_binance_client(testnet=True)
+                logger.info("Testnet BinanceClient başarıyla oluşturuldu")
+                
+                if test_client.validate_api_keys():
+                    logger.info("Testnet API anahtarları doğrulandı")
+                    results['test'] = {'success': True, 'message': 'Bağlantı başarılı'}
+                else:
+                    logger.warning("Testnet API anahtarları doğrulanamadı")
+                    results['test'] = {'success': False, 'message': 'API anahtarları doğrulanamadı'}
+            except Exception as e:
+                logger.error(f"Testnet API bağlantısı test edilirken hata: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                results['test'] = {'success': False, 'message': f'Hata: {str(e)}'}
+        else:
+            logger.warning("Testnet API anahtarları girilmemiş")
+            results['test'] = {'success': False, 'message': 'API anahtarları girilmemiş'}
+        
+        logger.info(f"API bağlantı testi tamamlandı: {results}")
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"API bağlantısı test edilirken hata: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/bot/start', methods=['POST'])
+def start_bot():
+    """Botu başlat"""
+    try:
+        data = request.json
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        strategy_name = data.get('strategy', 'MACD_EMA')
+        
+        # Bot zaten çalışıyorsa durdur
+        if bot_status['running']:
+            stop_bot()
+        
+        # Bot ayarlarını güncelle
+        bot_status['symbol'] = symbol
+        bot_status['interval'] = interval
+        bot_status['strategy'] = strategy_name
+        bot_status['stop_event'].clear()
+        
+        # Bot thread'ini başlat
+        bot_status['thread'] = threading.Thread(target=bot_loop)
+        bot_status['thread'].daemon = True
+        bot_status['thread'].start()
+        
+        bot_status['running'] = True
+        
+        return jsonify({
+            "success": True,
+            "message": f"Bot başlatıldı: {symbol} {interval} {strategy_name}"
+        })
+    except Exception as e:
+        logger.error(f"Bot başlatılırken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/api/bot/stop', methods=['POST'])
+def stop_bot():
+    """Botu durdur"""
+    try:
+        if bot_status['running']:
+            # Thread'i durdur
+            bot_status['stop_event'].set()
+            
+            # Thread'in sonlanmasını bekle (en fazla 5 saniye)
+            if bot_status['thread']:
+                bot_status['thread'].join(timeout=5)
+            
+            bot_status['running'] = False
+            bot_status['thread'] = None
+            
+            return jsonify({
+                "success": True,
+                "message": "Bot durduruldu"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Bot zaten çalışmıyor"
+            })
+    except Exception as e:
+        logger.error(f"Bot durdurulurken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/api/bot/status', methods=['GET'])
+def get_bot_status():
+    """Bot durumunu al"""
+    try:
+        status_data = {
+            "running": bot_status['running'],
+            "symbol": bot_status['symbol'],
+            "interval": bot_status['interval'],
+            "strategy": bot_status['strategy'],
+            "last_check": bot_status['last_check'].isoformat() if bot_status['last_check'] else None,
+            "last_signal": bot_status['last_signal'],
+        }
+        
+        return jsonify(status_data)
+    except Exception as e:
+        logger.error(f"Bot durumu alınırken hata: {str(e)}")
+        return str(e), 500
+
+@app.route('/api/settings/api', methods=['POST'])
+def update_api_settings():
+    """API ayarlarını güncelle"""
+    try:
+        data = request.json
+        
+        # API anahtarlarını al
+        live_api_key = data.get('live_api_key', '')
+        live_api_secret = data.get('live_api_secret', '')
+        test_api_key = data.get('test_api_key', '')
+        test_api_secret = data.get('test_api_secret', '')
+        testnet = data.get('testnet', False)
+        
+        # .env dosyasını güncelle
+        with open('.env', 'w') as f:
+            f.write(f"BINANCE_LIVE_API_KEY={live_api_key}\n")
+            f.write(f"BINANCE_LIVE_API_SECRET={live_api_secret}\n")
+            f.write(f"BINANCE_TEST_API_KEY={test_api_key}\n")
+            f.write(f"BINANCE_TEST_API_SECRET={test_api_secret}\n")
+            f.write(f"TESTNET={'true' if testnet else 'false'}\n")
+        
+        # Çevre değişkenlerini güncelle
+        os.environ['BINANCE_LIVE_API_KEY'] = live_api_key
+        os.environ['BINANCE_LIVE_API_SECRET'] = live_api_secret
+        os.environ['BINANCE_TEST_API_KEY'] = test_api_key
+        os.environ['BINANCE_TEST_API_SECRET'] = test_api_secret
+        os.environ['TESTNET'] = 'true' if testnet else 'false'
+        
+        # Aktif API anahtarlarını belirle
+        if testnet:
+            active_api_key = test_api_key
+            active_api_secret = test_api_secret
+        else:
+            active_api_key = live_api_key
+            active_api_secret = live_api_secret
+            
+        # Binance client'ı yeniden başlat
+        global binance_client
+        try:
+            binance_client = get_binance_client(testnet=testnet)
+            logger.info(f"Binance client başarıyla güncellendi. Testnet: {testnet}")
+        except Exception as e:
+            logger.error(f"Binance client güncellenirken hata: {str(e)}")
+        
+        return jsonify({'success': True, 'message': 'API ayarları güncellendi'})
+    except Exception as e:
+        logger.error(f"API ayarları işlenirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def bot_loop():
+    """Bot döngüsü - sürekli olarak sinyalleri kontrol eder ve işlem yapar"""
+    logger.info(f"Bot başlatıldı: {bot_status['symbol']} {bot_status['interval']} {bot_status['strategy']}")
+    
+    while not bot_status['stop_event'].is_set():
+        try:
+            # Verileri al
+            df = binance_client.get_historical_klines(bot_status['symbol'], bot_status['interval'], limit=100)
+            
+            # Strateji analizi yap
+            strategy = strategy_manager.get_strategy(bot_status['strategy'])
+            signal, confidence, metrics = strategy.analyze(df)
+            
+            # Sonuçları kaydet
+            bot_status['last_check'] = datetime.now()
+            bot_status['last_signal'] = {
+                'signal': signal,
+                'confidence': confidence,
+                'metrics': metrics
+            }
+            
+            logger.info(f"Bot sinyal: {signal} ({confidence:.2f}%) - {bot_status['symbol']} {bot_status['interval']}")
+            
+            # Sinyal varsa ve güven skoru yüksekse işlem yap
+            if signal in ['BUY', 'SELL'] and confidence > 75:
+                # Hesap bilgilerini al
+                account = binance_client.get_account()
+                
+                # İşlem büyüklüğünü hesapla (hesap bakiyesinin %5'i)
+                balance = float(account.get('totalWalletBalance', 0))
+                position_size = balance * 0.05
+                
+                # Emir ver
+                side = "BUY" if signal == "BUY" else "SELL"
+                
+                # Gerçek emir vermek için aşağıdaki satırı aktif edin
+                # binance_client.place_order(bot_status['symbol'], side, position_size)
+                
+                logger.info(f"Bot işlem sinyali: {side} {position_size} {bot_status['symbol']}")
+            
+            # Her kontrolden sonra bekle (interval'e göre ayarlanabilir)
+            time.sleep(60)  # 1 dakika bekle
+            
+        except Exception as e:
+            logger.error(f"Bot döngüsünde hata: {str(e)}")
+            time.sleep(30)  # Hata durumunda 30 saniye bekle
+
+if __name__ == '__main__':
+    try:
+        # Uygulama başlat
+        logger.info("Uygulama başlatılıyor...")
+        app.run(host='0.0.0.0', debug=True)
+    except Exception as e:
+        logger.critical(f"Kritik hata: {str(e)}")
+        import traceback
+        logger.critical(traceback.format_exc())
+        print(f"Kritik hata: {str(e)}")
+        print("Detaylı hata bilgisi için log dosyasını kontrol edin.")
